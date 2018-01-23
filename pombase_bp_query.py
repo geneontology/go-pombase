@@ -60,7 +60,8 @@ for subject_id in aset.association_map:
             for bp in get_ancestor_bps(object_id):
                 if is_biological_process(bp):
                     if bp in bps:
-                        bps[bp].append(subject_id)
+                        if subject_id not in bps[bp]:
+                            bps[bp].append(subject_id)
                     else:
                         bps[bp] = [subject_id]
             # print(str(len(get_ancestor_bps(object_id))) + " - " + object_id + " - " + onto.label(object_id))
