@@ -253,9 +253,7 @@ class AnnotationDataExtracter():
                             f.write("  Ext: " + "; ".join(d_list) + "\n")
                 f.write("\n")
 
-def do_stuff():
-    start = datetime.datetime.now()
-
+def do_stuff_for_bp(bp_term):
     pombase_annots = query_for_annots()
 
     ontology = OntologyFactory().create("go")
@@ -264,8 +262,39 @@ def do_stuff():
     tad = TermAnnotationDictionary(ontology, aset)
     analyzer = GOTermAnalyzer(ontology)
     extracter = AnnotationDataExtracter(analyzer)
-    # tad.get_our_nice_lists(n=30, m=10)
-    # result_bp_list = uniqueify(tad.pair_list)
+
+    ok_to_print_results = False
+    gene_info = {}
+    for g in tad.bps[bp_term]:
+        ### Find annots for g subject where go_term is MF - then check for extension part_of "GO:0010971"
+        gene_annots = []
+        for annot in pombase_annots:
+            if annot["subject"]["id"] == g:
+                gene_annots.append(annot)
+        mf_annots = []
+        for annot in gene_annots:
+            if analyzer.is_molecular_function(annot["object"]["id"]):
+                mf_annots.append(annot)
+        gene_info[g] = {}
+        gene_info[g]["bp"] = bp_term
+        mf = extracter.relevant_mf_annotation(mf_annots, bp_term, tad) # 2a,b,c
+        if mf is not None:
+            gene_info[g]["molecular_function"] = mf
+        cc = extracter.relevant_cc_annotation(mf_annots) # 2a
+        if cc is not None:
+            # ok_to_print_results = True
+            gene_info[g]["cellular_component"] = cc
+        cc_annots = []
+        if "cellular_component" not in gene_info[g]:       
+            cc_annots = extracter.direct_cc_annotations(gene_annots)
+            if len(cc_annots) > 0:
+                gene_info[g]["cellular_component"] = cc_annots[0] # 2b
+        gene_info[g]["connections"] = extracter.get_gene_connections(mf_annots, bp_term, tad)
+
+    return gene_info
+
+def do_stuff():
+    start = datetime.datetime.now()
 
     # Currently used relations in extensions field:
     #   ['has_direct_input', 'part_of', 'exists_during', 'occurs in', 'has_regulation_target', 
@@ -279,46 +308,8 @@ def do_stuff():
     # bps = ["GO:0006903"] # vesicle targeting
     # bps = result_bp_list
     for bp in bps:
-        ok_to_print_results = False
-        gene_info = {}
-        for g in tad.bps[bp]:
-            ### Find annots for g subject where go_term is MF - then check for extension part_of "GO:0010971"
-            gene_annots = []
-            for annot in pombase_annots:
-                if annot["subject"]["id"] == g:
-                    gene_annots.append(annot)
-            mf_annots = []
-            for annot in gene_annots:
-                if analyzer.is_molecular_function(annot["object"]["id"]):
-                    mf_annots.append(annot)
-            gene_info[g] = {}
-            gene_info[g]["bp"] = bp
-            mf = extracter.relevant_mf_annotation(mf_annots, bp, tad) # 2a,b,c
-            if mf is not None:
-                gene_info[g]["molecular_function"] = mf
-            cc = extracter.relevant_cc_annotation(mf_annots) # 2a
-            if cc is not None:
-                # ok_to_print_results = True
-                gene_info[g]["cellular_component"] = cc
-            cc_annots = []
-            if "cellular_component" not in gene_info[g]:       
-                cc_annots = extracter.direct_cc_annotations(gene_annots)
-                if len(cc_annots) > 0:
-                    gene_info[g]["cellular_component"] = cc_annots[0] # 2b
-            gene_info[g]["connections"] = extracter.get_gene_connections(mf_annots, bp, tad)
-
-        # print_results(gene_info, tad, "GO:0010971_model_attempt.txt")
-        # conn_outfile = "GO:0010971_connections.txt"
-        # if ok_to_print_results:
-        #     print_results(gene_info, tad, "models_w_CC_extension_annotations.txt")
-        # print_results(gene_info, tad)
-        conn_outfile = None
-        # with open(conn_outfile, 'w') as f:
-        for g in gene_info:
-            for connect in gene_info[g]["connections"].gene_connections:
-                object_id = connect.annotation["object"]["id"]
-                print(connect.gp_a + "(" + aset.label(connect.gp_a) + ") " + connect.direction + " " + connect.gp_b + "(" + aset.label(connect.gp_b) + ") - " + object_id + " (" + aset.label(object_id) + ")")
-                # f.write(connect[0] + "(" + aset.label(connect[0]) + ") -- " + connect[1] + "(" + aset.label(connect[1]) + ")\n")
+        print(do_stuff_for_bp(bp))
+        
     print("Execution time: " + str(datetime.datetime.now() - start))
 
 # do_stuff()
