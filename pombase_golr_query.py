@@ -52,14 +52,14 @@ class GeneConnectionSet():
                 self.append(connection)
 
 class GeneConnection():
-    def __init__(self, gene_a, gene_b, direction, annotation=None):
+    def __init__(self, gene_a, gene_b, relation, annotation=None):
         self.gp_a = gene_a
         self.gp_b = gene_b
-        self.direction = direction
+        self.relation = relation
         self.annotation = annotation
 
     def equals(self, gene_connection):
-        if self.gp_a == gene_connection.gp_a and self.gp_b == gene_connection.gp_b and self.direction == gene_connection.direction:
+        if self.gp_a == gene_connection.gp_a and self.gp_b == gene_connection.gp_b and self.relation == gene_connection.relation:
             return True
         else:
             return False
@@ -177,7 +177,7 @@ class AnnotationDataExtracter():
             if "evidence_with" in annot and annot["object"]["id"] == "GO:0005515":
                 with_genes = annot["evidence_with"]
                 for wg in with_genes:
-                    connection = GeneConnection(annot["subject"]["id"], wg, "<->", annot)
+                    connection = GeneConnection(annot["subject"]["id"], wg, "evidence_with", annot)
                     if wg in tad.bps[bp] and not connections.contains(connection):
                         connections.append(connection)
         return connections
@@ -193,9 +193,9 @@ class AnnotationDataExtracter():
                 for gene in gene_list:
                     connection = None
                     if gene[1] in ["has_regulation_target","regulates activity of"]:
-                        connection = GeneConnection(annot["subject"]["id"], gene[0], "-->", annot)
+                        connection = GeneConnection(annot["subject"]["id"], gene[0], gene[1], annot)
                     elif gene[1] in ["has input","has_direct_input"]:
-                        connection = GeneConnection(annot["subject"]["id"], gene[0], "<--", annot)
+                        connection = GeneConnection(annot["subject"]["id"], gene[0], gene[1], annot)
                     # connection = (annot["subject"]["id"],gene[0])
                     if connection and gene[0] in tad.bps[bp] and not connections.contains(connection):
                         connections.append(connection)
@@ -253,7 +253,7 @@ class AnnotationDataExtracter():
                             f.write("  Ext: " + "; ".join(d_list) + "\n")
                 f.write("\n")
 
-def do_stuff_for_bp(bp_term):
+def genes_and_annots_for_bp(bp_term):
     pombase_annots = query_for_annots()
 
     ontology = OntologyFactory().create("go")
@@ -308,7 +308,7 @@ def do_stuff():
     # bps = ["GO:0006903"] # vesicle targeting
     # bps = result_bp_list
     for bp in bps:
-        print(do_stuff_for_bp(bp))
+        print(genes_and_annots_for_bp(bp))
         
     print("Execution time: " + str(datetime.datetime.now() - start))
 

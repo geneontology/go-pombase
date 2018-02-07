@@ -9,7 +9,7 @@ from rdflib.namespace import Namespace
 import rdflib
 import logging
 from pombase_direct_bp_annots_query import setup_pombase, GOTermAnalyzer
-from pombase_golr_query import query_for_annots, do_stuff_for_bp, GeneConnectionSet
+from pombase_golr_query import query_for_annots, genes_and_annots_for_bp, GeneConnectionSet, GeneConnection
 
 # logging.basicConfig(level=logging.INFO)
 
@@ -38,6 +38,7 @@ PART_OF = URIRef(expand_uri(ro.part_of))
 OCCURS_IN = URIRef(expand_uri(ro.occurs_in))
 COLOCALIZES_WITH = URIRef(expand_uri(ro.colocalizes_with))
 MOLECULAR_FUNCTION = URIRef(expand_uri(upt.molecular_function))
+REGULATES = URIRef("http://purl.obolibrary.org/obo/RO_0002211")
 
 def get_aspect(go_term):
     if analyzer.is_molecular_function(go_term):
@@ -76,94 +77,99 @@ class CamTurtleRdfWriter(TurtleRdfWriter):
         # Model attributes TODO: Should move outside init
         self.graph.add((self.base, URIRef("http://purl.org/pav/providedBy"), Literal("http://geneontology.org")))        
         self.graph.add((self.base, DC.date, Literal("2018-02-06")))
-        self.graph.add((self.base, DC.title, Literal("ontobio-generated annotons")))
+        self.graph.add((self.base, DC.title, Literal("ontobio-generated annotons bp")))
         self.graph.add((self.base, DC.contributor, Literal("http://orcid.org/0000-0002-6659-0416")))
         self.graph.add((self.base, URIRef("http://geneontology.org/lego/modelstate"), Literal("development")))
         self.graph.add((self.base, OWL.versionIRI, self.base))
         self.graph.add((self.base, OWL.imports, URIRef("http://purl.obolibrary.org/obo/go/extensions/go-lego.owl")))
 
-class AnnotonCamRdfTransform(RdfTransform):
-    def translate(self, annoton, and_xps=None):
-        associations = []
-        if annoton.molecular_function is not None:
-            associations.append(annoton.molecular_function)
-        # if annoton.cellular_component is not None:
-        #     associations.append(annoton.cellular_component)
+# class AnnotonCamRdfTransform(RdfTransform):
+class AnnotonCamRdfTransform(CamRdfTransform):
+    def translate_annoton(self, annoton, and_xps=None):
+        
 
-        for association in associations:
-            # See https://github.com/biolink/ontobio/pull/136
-            # if the association has an annotation extension, and this
-            # is a union, then we treat each element in the union
-            # as a distinct assertion/annotation, where each assertion
-            # has its own conjunction of relational expressions
-            association["aspect"] = get_aspect(association["object"]["id"])
-            evidence = {'type' : association["evidence_type"],
-                        'has_supporting_reference' : association["reference"]}
-            association["evidence"] = evidence
-
-            if and_xps is None and 'object_extensions' in association:
-                x = association['object_extensions']
-                for ix in x['union_of']:
-                    and_xps = ix['intersection_of']
-                    self.translate(association, and_xps)
-                
-            sub = association['subject']
-            obj = association['object']
-            rel = association['relation']
-            sub_uri = self.uri(sub)
-            obj_uri = self.uri(obj)
-
-            # E.g. instance of gene product class
-            # enabler_id = genid(base=self.writer.base)
-            if sub["id"] not in annoton.individuals:
-                enabler_id = genid(base=self.writer.base + '/')
-                annoton.individuals[sub["id"]] = enabler_id
-                self.emit_type(enabler_id, sub_uri)
-                self.emit_type(enabler_id, OWL.NamedIndividual)
-            else:
-                enabler_id = annoton.individuals[sub["id"]]
-
-            # E.g. instance of GO class
-            # tgt_id = genid(base=self.writer.base)
-            if obj["id"] not in annoton.individuals:
-                tgt_id = genid(base=self.writer.base + '/')
-                annoton.individuals[obj["id"]] = tgt_id
-                self.emit_type(tgt_id, obj_uri)
-                self.emit_type(tgt_id, OWL.NamedIndividual)
-            else:
-                tgt_id = annoton.individuals[obj["id"]]
-
-            aspect = association['aspect']
-            stmt = None
-
-            # todo: use relation
-            if aspect == 'F':
-                stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
-            elif aspect == 'P':
-                mf_id = genid(base=self.writer.base)
-                self.emit_type(mf_id, MOLECULAR_FUNCTION)
-                stmt = self.emit(mf_id, ENABLED_BY, enabler_id)
-                stmt = self.emit(mf_id, PART_OF, tgt_id)
-            elif aspect == 'C':
-                mf_id = genid(base=self.writer.base)
-                self.emit_type(mf_id, MOLECULAR_FUNCTION)
-                stmt = self.emit(mf_id, ENABLED_BY, enabler_id)
-                stmt = self.emit(mf_id, OCCURS_IN, tgt_id)
-
-            if self.include_subject_info:
-                pass
-                # TODO
+        # See https://github.com/biolink/ontobio/pull/136
+        # if the association has an annotation extension, and this
+        # is a union, then we treat each element in the union
+        # as a distinct assertion/annotation, where each assertion
+        # has its own conjunction of relational expressions
+        
+        # if and_xps is None and 'object_extensions' in association:
+        #     x = association['object_extensions']
+        #     for ix in x['union_of']:
+        #         and_xps = ix['intersection_of']
+        #         self.translate(association, and_xps)
             
-            if and_xps is not None:
-                for ext in and_xps:
-                    filler_inst = genid(base=self.writer.base)
-                    self.emit_type(filler_inst, self.uri(ext['filler']))
-                    p = self.lookup_relation(ext['property'])
-                    if p is None:
-                        logging.warning("No such property {}".format(ext))
-                    else:
-                        self.emit(tgt_id, p, filler_inst)
-            self.translate_evidence(association, stmt)
+        # sub = association['subject']
+        # obj = association['object']
+        # rel = association['relation']
+        sub = annoton.enabled_by
+        obj = annoton.molecular_function["object"]
+        sub_uri = self.uri(sub)
+        obj_uri = self.uri(obj)
+
+        # E.g. instance of gene product class
+        # enabler_id = genid(base=self.writer.base)
+        if sub not in annoton.individuals:
+            enabler_id = genid(base=self.writer.base + '/')
+            annoton.individuals[sub] = enabler_id
+            self.emit_type(enabler_id, sub_uri)
+            self.emit_type(enabler_id, OWL.NamedIndividual)
+        else:
+            enabler_id = annoton.individuals[sub]
+
+        # E.g. instance of GO class
+        # tgt_id = genid(base=self.writer.base)
+        if obj["id"] not in annoton.individuals:
+            tgt_id = genid(base=self.writer.base + '/')
+            annoton.individuals[obj["id"]] = tgt_id
+            self.emit_type(tgt_id, obj_uri)
+            self.emit_type(tgt_id, OWL.NamedIndividual)
+        else:
+            tgt_id = annoton.individuals[obj["id"]]
+
+        # aspect = association['aspect']
+        stmt = None
+
+        # todo: use relation
+        # if aspect == 'F':
+        #     stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
+        # elif aspect == 'P':
+        #     mf_id = genid(base=self.writer.base)
+        #     self.emit_type(mf_id, MOLECULAR_FUNCTION)
+        #     stmt = self.emit(mf_id, ENABLED_BY, enabler_id)
+        #     stmt = self.emit(mf_id, PART_OF, tgt_id)
+        # elif aspect == 'C':
+        #     mf_id = genid(base=self.writer.base)
+        #     self.emit_type(mf_id, MOLECULAR_FUNCTION)
+        #     stmt = self.emit(mf_id, ENABLED_BY, enabler_id)
+        #     stmt = self.emit(mf_id, OCCURS_IN, tgt_id)
+
+        self.emit_type(tgt_id, obj_uri)
+        enabled_by_stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
+        part_of_stmt = self.emit(tgt_id, PART_OF, bp_id)
+
+        self.translate_evidence(annoton.molecular_function, enabled_by_stmt)
+        if annoton.cellular_component is not None:
+            cc_object_id = annoton.cellular_component["object"]["id"]
+            cc_uri = self.uri(cc_object_id)
+            if cc_object_id not in annoton.individuals:
+                cc_id = genid(base=self.writer.base + '/')
+                annoton.individuals[cc_object_id] = cc_id
+                self.emit_type(cc_id, cc_uri)
+                self.emit_type(cc_id, OWL.NamedIndividual)
+            occurs_in_stmt = self.emit(tgt_id, OCCURS_IN, cc_id)
+            self.translate_evidence(annoton.cellular_component, occurs_in_stmt)
+        
+        if and_xps is not None:
+            for ext in and_xps:
+                filler_inst = genid(base=self.writer.base)
+                self.emit_type(filler_inst, self.uri(ext['filler']))
+                p = self.lookup_relation(ext['property'])
+                if p is None:
+                    logging.warning("No such property {}".format(ext))
+                else:
+                    self.emit(tgt_id, p, filler_inst)
 
     def translate_evidence(self, association, stmt):
         """
@@ -177,7 +183,8 @@ class AnnotonCamRdfTransform(RdfTransform):
         ``
 
         """
-        ev = association['evidence']
+        ev = {'type' : association["evidence_type"],
+              'has_supporting_reference' : association["reference"]}
         # Try finding existing evidence object containing same type and references
         ev_id = self.find_or_create_evidence_id(ev)
         # ev_id = None
@@ -255,10 +262,15 @@ writer.emit_type(URIRef("http://purl.org/pav/providedBy"), OWL.AnnotationPropert
 
 # associations = []
 annotons = []
-gene_info = do_stuff_for_bp("GO:0010971")
+bp = "GO:0010971"
+gene_info = genes_and_annots_for_bp(bp)
+bp_id = genid(base=writer.writer.base + '/')
+writer.emit_type(bp_id, writer.uri(bp))
+writer.emit_type(bp_id, OWL.NamedIndividual)
 for gene in gene_info:
     annoton = Annoton(gene_info[gene], gene)
-    annotons.append(annoton)
+    if annoton.molecular_function is not None:
+        annotons.append(annoton)
     # if "molecular_function" in gene_info[gene]:
     #     associations.append(gene_info[gene]["molecular_function"])
     # if "cellular_component" in gene_info[gene]:
@@ -273,5 +285,5 @@ for annoton in annotons:
 
     writer.translate(annoton)
 
-with open("rdf_output_annotons.ttl", 'wb') as f:
+with open("rdf_output_annotons_bp.ttl", 'wb') as f:
     writer.writer.serialize(destination=f)
