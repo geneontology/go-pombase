@@ -4,8 +4,35 @@ from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 # from pombase_direct_bp_annots_query import TermAnnotationDictionary, is_molecular_function, is_cellular_component, setup_pombase, pair_bp_sets_with_similar_genes, uniqueify
 from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer
+import json
 
-M = GolrFields
+mf_part_of_relations = ['part_of']
+mf_gene_relations =['has input','has_direct_input','has_regulation_target','regulates activity of']
+cc_relations = ['occurs in','occurs at']
+
+class ExtensionGolrFields(GolrFields):
+    ANNOTATION_EXTENSION_JSON="annotation_extension_json"
+    EVIDENCE_WITH="evidence_with"
+    REFERENCE="reference"
+    EVIDENCE_TYPE="evidence_type"
+
+class ExtensionGolrAssociationQuery(GolrAssociationQuery):
+    def translate_doc(self, d, field_mapping=None, map_identifiers=None, **kwargs):
+        # assoc = super(GolrAssociationQuery, self).translate_doc(d, field_mapping, map_identifiers, kwargs)
+        assoc = GolrAssociationQuery.translate_doc(self, d, field_mapping, map_identifiers, **kwargs)
+
+        if M.ANNOTATION_EXTENSION_JSON in d:
+            assoc['annotation_extensions'] = [json.loads(ext) for ext in d[M.ANNOTATION_EXTENSION_JSON]]
+        if M.EVIDENCE_TYPE in d:
+            assoc[M.EVIDENCE_TYPE] = d[M.EVIDENCE_TYPE]
+        if M.EVIDENCE_WITH in d:
+            assoc[M.EVIDENCE_WITH] = d[M.EVIDENCE_WITH]
+        if M.REFERENCE in d:
+            assoc[M.REFERENCE] = d[M.REFERENCE]
+
+        return assoc
+
+M = ExtensionGolrFields()
 POMBASE = "NCBITaxon:4896"
 
 my_select_fields = [
@@ -29,9 +56,6 @@ my_select_fields = [
                 M.REFERENCE,
                 M.ANNOTATION_EXTENSION_JSON # special!
             ]
-mf_part_of_relations = ['part_of']
-mf_gene_relations =['has input','has_direct_input','has_regulation_target','regulates activity of']
-cc_relations = ['occurs in','occurs at']
 
 class GeneConnectionSet():
     def __init__(self):
@@ -72,7 +96,8 @@ def get_specific_annots(annots, subject_id, object_id):
     return found_annots
 
 def query_for_annots(subject_id=None, object_id=None):
-    q = GolrAssociationQuery('gene', 'function', subject_taxon=POMBASE, select_fields=my_select_fields,
+    # q = GolrAssociationQuery('gene', 'function', subject_taxon=POMBASE, select_fields=my_select_fields,
+    q = ExtensionGolrAssociationQuery('gene', 'function', subject_taxon=POMBASE, select_fields=my_select_fields,
                             subject=subject_id, 
                             object=object_id,
                             rows=100000) # Only 39435 came back when I set this higher

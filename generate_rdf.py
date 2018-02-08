@@ -283,7 +283,7 @@ for annoton in annotons:
         writer.emit_type(URIRef("http://identifiers.org/" + annoton.enabled_by), OWL.Class)
         classes.append(annoton.enabled_by)
 
-    writer.translate(annoton)
+    writer.translate_annoton(annoton)
 
 with open("rdf_output_annotons_bp.ttl", 'wb') as f:
     writer.writer.serialize(destination=f)
