@@ -1,5 +1,5 @@
 # go-pombase
-Code for querying GO annotations for PomBase using ontobio API.
+Code for querying GO annotations for PomBase and creating GO-CAM models using ontobio API.
 
 ## Dependencies
-Requires ontobio along with some mods I made to pull in extra fields. See latest commits in my [ontobio](https://github.com/dustine32/ontobio) fork for how I added the fields.
+Requires [ontobio](https://github.com/biolink/ontobio).
