@@ -1,0 +1,35 @@
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX oboinowl: <http://www.geneontology.org/formats/oboInOwl#>
+PREFIX go: <http://purl.obolibrary.org/obo/go#>
+PREFIX metago: <http://model.geneontology.org/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX MF: <http://purl.obolibrary.org/obo/GO_0003674>
+PREFIX CC: <http://purl.obolibrary.org/obo/GO_0005575>
+PREFIX BP: <http://purl.obolibrary.org/obo/GO_0008150>
+PREFIX ECO: <http://purl.obolibrary.org/obo/ECO_>
+
+SELECT  ?sClass ?pred_label ?objClass (GROUP_CONCAT(?evidence_code;SEPARATOR=",") as ?grouped_evidence)
+WHERE {
+  GRAPH <http://model.geneontology.org/0c72f7b4-9fa5-42b2-8107-4153ec900c52> {
+    ?sub ?pred ?obj .
+    ?b owl:annotatedSource ?sub ;
+       owl:annotatedProperty ?pred ;
+       owl:annotatedTarget ?obj .
+
+    ?sub a ?sClass .
+    ?obj a ?objClass .
+
+    FILTER(?sClass != owl:NamedIndividual)
+    FILTER(?objClass != owl:NamedIndividual)
+
+    ?b <http://geneontology.org/lego/evidence> ?evidence .
+    ?evidence a ?etype .
+    FILTER(?etype = ECO:0000501)
+  }
+  ?etype rdfs:subClassOf* ECO:0000000 .
+  ?etype oboinowl:hasExactSynonym ?evidence_code .
+  ?pred rdfs:label ?pred_label
+}
+GROUP BY ?sClass ?pred_label ?objClass
+LIMIT 1000
