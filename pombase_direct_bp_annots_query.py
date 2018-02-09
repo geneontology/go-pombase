@@ -99,6 +99,7 @@ class TermAnnotationDictionary():
         self.analyzer = GOTermAnalyzer(ontology)
         self.grouper = BPTermSimilarityGrouper(self)
 
+        progress = ProgressTracker(len(annotation_set.association_map), "initializing gene-to-BP term dictionary")
         ### subject_id = PomBase:SP######.## identifier - e.g. "PomBase:SPBP19A11.06"
         for subject_id in annotation_set.association_map:
             objects_for_subject = annotation_set.objects_for_subject(subject_id)
@@ -112,6 +113,7 @@ class TermAnnotationDictionary():
                                 self.bps[bp].append(subject_id)
                         else:
                             self.bps[bp] = [subject_id]
+            progress.print_progress()
 
     def print_results(self, filepath=None, alt_bps=None):
         bps = self.bps
@@ -272,21 +274,24 @@ class BPTermSimilarityGrouper():
                     cluster_counter += 1
 
 class ProgressTracker():
-    def __init__(self, total):
+    def __init__(self, total, title=None):
         self.start = datetime.datetime.now()
         self.progress_counter = 0
         self.current_progress = None
         self.total = total
+        self.title = title
 
     def print_progress(self):
         self.progress_counter += 1
         updated_progress = int(math.floor((self.progress_counter / self.total) * 100))
         if self.current_progress is None or updated_progress > self.current_progress:
             self.current_progress = updated_progress
-            sys.stdout.flush()
-            print(str(self.current_progress) + "% complete")
-            sys.stdout.write("\033[F")
-            sys.stdout.write("\033[K")
+            if self.title is not None:
+                print(str(self.current_progress) + "% complete - " + self.title)
+            else:
+                print(str(self.current_progress) + "% complete")
+            if self.current_progress != 100:
+                sys.stdout.write("\033[F")
 
     def execution_time(self):
         return datetime.datetime.now() - self.start

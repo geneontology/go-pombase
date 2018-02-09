@@ -62,7 +62,7 @@ class Annoton():
             return gene_info[aspect]
 
 class CamTurtleRdfWriter(TurtleRdfWriter):
-    def __init__(self):
+    def __init__(self, modeltitle):
         self.base = genid(base="http://model.geneontology.org")
         self.graph = rdflib.Graph(identifier=self.base)
         self.graph.bind("owl", OWL)
@@ -77,7 +77,7 @@ class CamTurtleRdfWriter(TurtleRdfWriter):
         # Model attributes TODO: Should move outside init
         self.graph.add((self.base, URIRef("http://purl.org/pav/providedBy"), Literal("http://geneontology.org")))        
         self.graph.add((self.base, DC.date, Literal("2018-02-06")))
-        self.graph.add((self.base, DC.title, Literal("ontobio-generated annotons bp")))
+        self.graph.add((self.base, DC.title, Literal(modeltitle)))
         self.graph.add((self.base, DC.contributor, Literal("http://orcid.org/0000-0002-6659-0416")))
         self.graph.add((self.base, URIRef("http://geneontology.org/lego/modelstate"), Literal("development")))
         self.graph.add((self.base, OWL.versionIRI, self.base))
@@ -247,7 +247,8 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         if len(bnodes) > 0:
             return list(bnodes)[0]
 
-cam_writer = CamTurtleRdfWriter()
+modeltitle = "rdf_output_annotons_queries"
+cam_writer = CamTurtleRdfWriter(modeltitle)
 writer = AnnotonCamRdfTransform(cam_writer)
 classes = []
 # individuals = {}
@@ -285,5 +286,5 @@ for annoton in annotons:
 
     writer.translate_annoton(annoton)
 
-with open("rdf_output_annotons_bp.ttl", 'wb') as f:
+with open(modeltitle + ".ttl", 'wb') as f:
     writer.writer.serialize(destination=f)

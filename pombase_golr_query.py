@@ -3,7 +3,7 @@ from ontobio.golr.golr_query import GolrAssociationQuery, GolrFields
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 # from pombase_direct_bp_annots_query import TermAnnotationDictionary, is_molecular_function, is_cellular_component, setup_pombase, pair_bp_sets_with_similar_genes, uniqueify
-from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer
+from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer, ProgressTracker
 import json
 
 mf_part_of_relations = ['part_of']
@@ -17,6 +17,10 @@ class ExtensionGolrFields(GolrFields):
     EVIDENCE_TYPE="evidence_type"
 
 class ExtensionGolrAssociationQuery(GolrAssociationQuery):
+    def __init__(self, subject_category=None, object_category=None, **kwargs):
+        GolrAssociationQuery.__init__(self, subject_category, object_category, **kwargs)
+        self.select_fields = self.get_select_fields()
+
     def translate_doc(self, d, field_mapping=None, map_identifiers=None, **kwargs):
         # assoc = super(GolrAssociationQuery, self).translate_doc(d, field_mapping, map_identifiers, kwargs)
         assoc = GolrAssociationQuery.translate_doc(self, d, field_mapping, map_identifiers, **kwargs)
@@ -32,10 +36,10 @@ class ExtensionGolrAssociationQuery(GolrAssociationQuery):
 
         return assoc
 
-M = ExtensionGolrFields()
-POMBASE = "NCBITaxon:4896"
+    def get_select_fields(self):
+        M = ExtensionGolrFields()
 
-my_select_fields = [
+        my_select_fields = [
                 M.ID,
                 M.IS_DEFINED_BY,
                 M.SOURCE,
@@ -55,7 +59,12 @@ my_select_fields = [
                 M.EVIDENCE_TYPE,
                 M.REFERENCE,
                 M.ANNOTATION_EXTENSION_JSON # special!
-            ]
+        ]
+
+        return my_select_fields
+
+M = ExtensionGolrFields()
+POMBASE = "NCBITaxon:4896"
 
 class GeneConnectionSet():
     def __init__(self):
@@ -96,11 +105,10 @@ def get_specific_annots(annots, subject_id, object_id):
     return found_annots
 
 def query_for_annots(subject_id=None, object_id=None):
-    # q = GolrAssociationQuery('gene', 'function', subject_taxon=POMBASE, select_fields=my_select_fields,
-    q = ExtensionGolrAssociationQuery('gene', 'function', subject_taxon=POMBASE, select_fields=my_select_fields,
-                            subject=subject_id, 
-                            object=object_id,
-                            rows=100000) # Only 39435 came back when I set this higher
+    q = ExtensionGolrAssociationQuery('gene', 'function', subject_taxon=POMBASE,
+                                subject=subject_id,
+                                object=object_id,
+                                rows=10)
     a = q.exec()["associations"]
     return a
 
@@ -279,7 +287,8 @@ class AnnotationDataExtracter():
                 f.write("\n")
 
 def genes_and_annots_for_bp(bp_term):
-    pombase_annots = query_for_annots()
+    # pombase_annots = query_for_annots()
+    pombase_annots = []
 
     ontology = OntologyFactory().create("go")
     afactory = AssociationSetFactory()
@@ -290,12 +299,13 @@ def genes_and_annots_for_bp(bp_term):
 
     ok_to_print_results = False
     gene_info = {}
+    progress = ProgressTracker(len(tad.bps[bp_term]), "get relevant annotations/connections for each gene")
     for g in tad.bps[bp_term]:
         ### Find annots for g subject where go_term is MF - then check for extension part_of "GO:0010971"
-        gene_annots = []
-        for annot in pombase_annots:
-            if annot["subject"]["id"] == g:
-                gene_annots.append(annot)
+        gene_annots = query_for_annots(g)
+        # for annot in pombase_annots:
+        #     if annot["subject"]["id"] == g:
+        #         gene_annots.append(annot)
         mf_annots = []
         for annot in gene_annots:
             if analyzer.is_molecular_function(annot["object"]["id"]):
@@ -315,6 +325,8 @@ def genes_and_annots_for_bp(bp_term):
             if len(cc_annots) > 0:
                 gene_info[g]["cellular_component"] = cc_annots[0] # 2b
         gene_info[g]["connections"] = extracter.get_gene_connections(mf_annots, bp_term, tad)
+
+        progress.print_progress()
 
     return gene_info
 
