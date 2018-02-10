@@ -1,6 +1,7 @@
 from ontobio.rdfgen.assoc_rdfgen import CamRdfTransform, TurtleRdfWriter, RdfTransform, genid
 from ontobio.vocabulary.relations import OboRO, Evidence
 from ontobio.vocabulary.upper import UpperLevel
+from ontobio.ontol_factory import OntologyFactory
 from prefixcommons.curie_util import expand_uri
 from rdflib.namespace import OWL, RDF
 from rdflib import Literal
@@ -8,6 +9,7 @@ from rdflib.term import URIRef
 from rdflib.namespace import Namespace
 import rdflib
 import logging
+import argparse
 from pombase_direct_bp_annots_query import setup_pombase, GOTermAnalyzer
 from pombase_golr_query import query_for_annots, genes_and_annots_for_bp, GeneConnectionSet, GeneConnection
 
@@ -20,12 +22,6 @@ LEGO = Namespace("http://geneontology.org/lego/")
 LAYOUT = Namespace("http://geneontology.org/lego/hint/layout/")
 PAV = Namespace('http://purl.org/pav/')
 DC = Namespace("http://purl.org/dc/elements/1.1/")
-onto, aset = setup_pombase()
-analyzer = GOTermAnalyzer(onto)
-# associations = query_for_annots("PomBase:SPBC11B10.09", "GO:0004693")
-
-# print(gene_info["PomBase:SPAC12B10.10"])
-
 
 # Stealing a lot of code for this from ontobio.rdfgen:
 # https://github.com/biolink/ontobio
@@ -40,13 +36,13 @@ COLOCALIZES_WITH = URIRef(expand_uri(ro.colocalizes_with))
 MOLECULAR_FUNCTION = URIRef(expand_uri(upt.molecular_function))
 REGULATES = URIRef("http://purl.obolibrary.org/obo/RO_0002211")
 
-def get_aspect(go_term):
-    if analyzer.is_molecular_function(go_term):
-        return 'F'
-    elif analyzer.is_cellular_component(go_term):
-        return 'C'
-    elif analyzer.is_biological_process(go_term):
-        return 'P'
+# def get_aspect(go_term):
+#     if analyzer.is_molecular_function(go_term):
+#         return 'F'
+#     elif analyzer.is_cellular_component(go_term):
+#         return 'C'
+#     elif analyzer.is_biological_process(go_term):
+#         return 'P'
 
 class Annoton():
     def __init__(self, gene_info, subject_id):
@@ -67,24 +63,29 @@ class CamTurtleRdfWriter(TurtleRdfWriter):
         self.graph = rdflib.Graph(identifier=self.base)
         self.graph.bind("owl", OWL)
         self.graph.bind("obo", "http://purl.obolibrary.org/obo/")
-        # self.graph.bind("lego", URIRef(LEGO))
-        # self.graph.bind("layout", LAYOUT)
-        # self.graph.bind("pav", URIRef(PAV))
         self.graph.bind("dc", DC)
 
         self.graph.add((self.base, RDF.type, OWL.Ontology))
 
         # Model attributes TODO: Should move outside init
         self.graph.add((self.base, URIRef("http://purl.org/pav/providedBy"), Literal("http://geneontology.org")))        
-        self.graph.add((self.base, DC.date, Literal("2018-02-06")))
+        self.graph.add((self.base, DC.date, Literal("2018-02-06"))) #TODO
         self.graph.add((self.base, DC.title, Literal(modeltitle)))
-        self.graph.add((self.base, DC.contributor, Literal("http://orcid.org/0000-0002-6659-0416")))
+        self.graph.add((self.base, DC.contributor, Literal("http://orcid.org/0000-0002-6659-0416"))) #TODO
         self.graph.add((self.base, URIRef("http://geneontology.org/lego/modelstate"), Literal("development")))
         self.graph.add((self.base, OWL.versionIRI, self.base))
         self.graph.add((self.base, OWL.imports, URIRef("http://purl.obolibrary.org/obo/go/extensions/go-lego.owl")))
 
 # class AnnotonCamRdfTransform(RdfTransform):
 class AnnotonCamRdfTransform(CamRdfTransform):
+    def __init__(self, writer=None):
+        CamRdfTransform.__init__(self, writer)
+        self.annotons = []
+        self.classes = []
+        self.evidences = []
+        self.ev_ids = []
+        self.bp_id = None
+
     def translate_annoton(self, annoton, and_xps=None):
         
 
@@ -147,7 +148,7 @@ class AnnotonCamRdfTransform(CamRdfTransform):
 
         self.emit_type(tgt_id, obj_uri)
         enabled_by_stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
-        part_of_stmt = self.emit(tgt_id, PART_OF, bp_id)
+        part_of_stmt = self.emit(tgt_id, PART_OF, self.bp_id)
 
         self.translate_evidence(annoton.molecular_function, enabled_by_stmt)
         if annoton.cellular_component is not None:
@@ -208,12 +209,12 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         self.emit(stmt_id, URIRef("http://geneontology.org/lego/evidence"), ev_id)
     
     def find_or_create_evidence_id(self, evidence):
-        for existing_evidence in evidences:
+        for existing_evidence in self.evidences:
             if evidence["type"] == existing_evidence["type"] and set(evidence["has_supporting_reference"]) == set(existing_evidence["has_supporting_reference"]):
                 # print(existing_evidence["id"])
                 if "id" not in existing_evidence:
                     existing_evidence["id"] = genid(base=self.writer.base + '/')
-                    ev_ids.append(existing_evidence["id"])
+                    self.ev_ids.append(existing_evidence["id"])
                 return existing_evidence["id"]
         ev_id = genid(base=self.writer.base + '/')
         evidence["id"] = ev_id
@@ -232,7 +233,7 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         if 'with_support_from' in evidence:
             for ref in evidence['with_support_from']:
                 self.emit(ev_id, self.uri(evt.evidence_with_support_from), self.uri(ref))
-        evidences.append(evidence)
+        self.evidences.append(evidence)
         return evidence["id"]
 
     def find_bnode(self, triple):
@@ -247,44 +248,50 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         if len(bnodes) > 0:
             return list(bnodes)[0]
 
-modeltitle = "rdf_output_annotons_queries"
-cam_writer = CamTurtleRdfWriter(modeltitle)
-writer = AnnotonCamRdfTransform(cam_writer)
-classes = []
-# individuals = {}
-evidences = []
-ev_ids = []
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-t', "--bp_term", type=str, required=True,
+                        help="Biological process GO term that GOCAM should model")
+    parser.add_argument('-f', "--filename", type=str, required=False,
+                        help="Destination filename - will end in '.ttl'")
 
-# AnnotionProperty
-writer.emit_type(URIRef("http://geneontology.org/lego/evidence"), OWL.AnnotationProperty)
-writer.emit_type(URIRef("http://geneontology.org/lego/hint/layout/x"), OWL.AnnotationProperty)
-writer.emit_type(URIRef("http://geneontology.org/lego/hint/layout/y"), OWL.AnnotationProperty)
-writer.emit_type(URIRef("http://purl.org/pav/providedBy"), OWL.AnnotationProperty)
+    args = parser.parse_args()
 
-# associations = []
-annotons = []
-bp = "GO:0010971"
-gene_info = genes_and_annots_for_bp(bp)
-bp_id = genid(base=writer.writer.base + '/')
-writer.emit_type(bp_id, writer.uri(bp))
-writer.emit_type(bp_id, OWL.NamedIndividual)
-for gene in gene_info:
-    annoton = Annoton(gene_info[gene], gene)
-    if annoton.molecular_function is not None:
-        annotons.append(annoton)
-    # if "molecular_function" in gene_info[gene]:
-    #     associations.append(gene_info[gene]["molecular_function"])
-    # if "cellular_component" in gene_info[gene]:
-    #     associations.append(gene_info[gene]["cellular_component"])
+    bp = args.bp_term
+    gene_info = genes_and_annots_for_bp(bp)
 
-# translate lists of annotations
-for annoton in annotons:
-    # Class
-    if annoton.enabled_by not in classes:
-        writer.emit_type(URIRef("http://identifiers.org/" + annoton.enabled_by), OWL.Class)
-        classes.append(annoton.enabled_by)
+    modeltitle = args.filename
+    if modeltitle.endswith(".ttl"):
+        modeltitle = modeltitle[:-4]
+    # modeltitle = "rdf_output_annotons_queries"
+    cam_writer = CamTurtleRdfWriter(modeltitle)
+    writer = AnnotonCamRdfTransform(cam_writer)
+    writer.bp_id = genid(base=writer.writer.base + '/')
+    writer.emit_type(writer.bp_id, writer.uri(bp))
+    writer.emit_type(writer.bp_id, OWL.NamedIndividual)
 
-    writer.translate_annoton(annoton)
+    # AnnotionProperty
+    writer.emit_type(URIRef("http://geneontology.org/lego/evidence"), OWL.AnnotationProperty)
+    writer.emit_type(URIRef("http://geneontology.org/lego/hint/layout/x"), OWL.AnnotationProperty)
+    writer.emit_type(URIRef("http://geneontology.org/lego/hint/layout/y"), OWL.AnnotationProperty)
+    writer.emit_type(URIRef("http://purl.org/pav/providedBy"), OWL.AnnotationProperty)
 
-with open(modeltitle + ".ttl", 'wb') as f:
-    writer.writer.serialize(destination=f)
+    for gene in gene_info:
+        annoton = Annoton(gene_info[gene], gene)
+        if annoton.molecular_function is not None:
+            writer.annotons.append(annoton)
+
+    # translate lists of annotations
+    for annoton in writer.annotons:
+        # Class
+        if annoton.enabled_by not in writer.classes:
+            writer.emit_type(URIRef("http://identifiers.org/" + annoton.enabled_by), OWL.Class)
+            writer.classes.append(annoton.enabled_by)
+
+        writer.translate_annoton(annoton)
+
+    with open(modeltitle + ".ttl", 'wb') as f:
+        writer.writer.serialize(destination=f)
+
+if __name__ == "__main__":
+    main()

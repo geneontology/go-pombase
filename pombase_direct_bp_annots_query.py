@@ -11,19 +11,6 @@ from ontobio.ontol_factory import OntologyFactory
 
 POMBASE = "NCBITaxon:4896"
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--outfile")
-parser.add_argument("--c_out")
-parser.add_argument("--unclustered_outfile")
-parser.add_argument("--n")
-parser.add_argument("--m")
-
-args = parser.parse_args()
-if args.n is not None:
-    args.n = int(args.n)
-if args.m is not None:
-    args.m = int(args.m)
-
 def setup_pombase():
     ontology = OntologyFactory().create("go")
     afactory = AssociationSetFactory()
@@ -204,7 +191,7 @@ class BPTermSimilarityGrouper():
         if m is None:
             m = 5
         set_list = []
-        progress = ProgressTracker(len(bp_dict))
+        progress = ProgressTracker(len(bp_dict), "pairing BP terms by gene set similarity")
         for bpx in bp_dict:
             for bpy in bp_dict:
                 if bpx != bpy and (bpx, bpy) not in set_list:
@@ -314,4 +301,27 @@ def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None):
     tad.print_results(s_out, tad.term_subset(unpaired_bps))
     grouper.print_clusters(c_list, c_out)
 
-# do_everything()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-t', "--term_gene_count_outfile", type=str, required=False,
+                        help="File name of BP term listing count of gene sets")
+    parser.add_argument('-c', "--clusters_outfile", type=str, required=False,
+                        help="File name of BP term clusters list")
+    parser.add_argument('-s', "--unclustered_outfile", type=str, required=False,
+                        help="File name of BP terms that did not cluster (singletons)")
+    parser.add_argument('-n', "--n_value", type=str, required=False,
+                        help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
+    parser.add_argument('-m', "--m_value", type=str, required=False,
+                        help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between the a pair is greater than or equal to min(m, number of genes in X, number of genes in Y)")
+
+    args = parser.parse_args()
+    if args.n_value is not None:
+        args.n_value = int(args.n_value)
+    if args.m_value is not None:
+        args.m_value = int(args.m_value)
+
+    print("Getting your lists for you...")
+    do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile)
+
+if __name__ == "__main__":
+    main()
