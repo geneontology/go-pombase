@@ -11,7 +11,7 @@ As this is coded right now for a specific use case, this can be ran simply by in
 ```
 python3 generate_rdf.py -t "GO:0010971" -g "gene_association.pombase" -f "filename.ttl"
 ```
-With the source GAF filename argument this now frees up the library to create GO-CAM models from any set of GAF's, not just ones pertaining to *S. pombe*. The example GAF can be downloaded from [here](ftp://ftp.geneontology.org/pub/go/gene-associations/gene_association.pombase.gz).
+With the source GAF filename argument this now frees up the library to create GO-CAM models from any set of GAF's, not just ones pertaining to *S. pombe*. The example GAF can be downloaded from ftp://ftp.geneontology.org/pub/go/gene-associations/.
 
 ## Dependencies
 Requires [ontobio](https://github.com/biolink/ontobio).
