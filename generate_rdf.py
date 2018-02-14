@@ -11,7 +11,9 @@ import rdflib
 import logging
 import argparse
 from pombase_direct_bp_annots_query import setup_pombase, GOTermAnalyzer
-from pombase_golr_query import query_for_annots, genes_and_annots_for_bp, GeneConnectionSet, GeneConnection
+from pombase_golr_query import query_for_annots, GeneConnectionSet, GeneConnection
+# from pombase_golr_query import genes_and_annots_for_bp
+from gaf_query import genes_and_annots_for_bp
 
 # logging.basicConfig(level=logging.INFO)
 
@@ -184,8 +186,12 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         ``
 
         """
-        ev = {'type' : association["evidence_type"],
-              'has_supporting_reference' : association["reference"]}
+        #TODO make smarter Annotation class
+        if "evidence_type" in association:
+            ev = {'type' : association["evidence_type"],
+                'has_supporting_reference' : association["reference"]}
+        else:
+            ev = association["evidence"]
         # Try finding existing evidence object containing same type and references
         ev_id = self.find_or_create_evidence_id(ev)
         # ev_id = None
@@ -254,11 +260,16 @@ def main():
                         help="Biological process GO term that GOCAM should model")
     parser.add_argument('-f', "--filename", type=str, required=False,
                         help="Destination filename - will end in '.ttl'")
+    parser.add_argument('-g', "--gaf_source", type=str, required=True,
+                        help="filename of GAF file to use as annotation source")
+    parser.add_argument('-j', "--tad_json", type=str, required=False,
+                        help="Existing json data file to load into term-to-gene dictionary. Speeds up performance.")
 
     args = parser.parse_args()
 
     bp = args.bp_term
-    gene_info = genes_and_annots_for_bp(bp)
+    # filename = "gene_association.pombase"
+    gene_info = genes_and_annots_for_bp(bp, args.gaf_source, json_file=args.tad_json)
 
     modeltitle = args.filename
     if modeltitle.endswith(".ttl"):

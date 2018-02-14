@@ -3,6 +3,7 @@ import datetime
 import logging
 import math
 import sys
+import json
 
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
@@ -75,7 +76,7 @@ class GOTermAnalyzer():
 
 class TermAnnotationDictionary():
 
-    def __init__(self, ontology, annotation_set):
+    def __init__(self, ontology, annotation_set, json_file=None):
         self.bps = {}    ### Dictionary of PomBase gene ID's grouped by BP GO term
         self.ontology = ontology
         self.annotation_set = annotation_set
@@ -85,22 +86,30 @@ class TermAnnotationDictionary():
         self.unpaired_bps = None
         self.analyzer = GOTermAnalyzer(ontology)
         self.grouper = BPTermSimilarityGrouper(self)
+        if json_file is not None:
+            with open(json_file, "r") as f:
+                self.bps = json.loads(f.read())
+                print("File '" + json_file + "' used to load gene-to-BP term dictionary - " + str(len(self.bps)) + " keys loaded")
+        else:
+            progress = ProgressTracker(len(annotation_set.association_map), "initializing gene-to-BP term dictionary")
+            ### subject_id = PomBase:SP######.## identifier - e.g. "PomBase:SPBP19A11.06"
+            for subject_id in annotation_set.association_map:
+                objects_for_subject = annotation_set.objects_for_subject(subject_id)
+                for object_id in objects_for_subject:
+                    if self.analyzer.is_biological_process(object_id):
+                        ancestor_bps = self.analyzer.get_ancestor_bps(object_id)
+                        ancestor_bps.append(object_id)
+                        for bp in ancestor_bps:
+                            if bp in self.bps:
+                                if subject_id not in self.bps[bp]:
+                                    self.bps[bp].append(subject_id)
+                            else:
+                                self.bps[bp] = [subject_id]
+                progress.print_progress()
 
-        progress = ProgressTracker(len(annotation_set.association_map), "initializing gene-to-BP term dictionary")
-        ### subject_id = PomBase:SP######.## identifier - e.g. "PomBase:SPBP19A11.06"
-        for subject_id in annotation_set.association_map:
-            objects_for_subject = annotation_set.objects_for_subject(subject_id)
-            for object_id in objects_for_subject:
-                if self.analyzer.is_biological_process(object_id):
-                    ancestor_bps = self.analyzer.get_ancestor_bps(object_id)
-                    ancestor_bps.append(object_id)
-                    for bp in ancestor_bps:
-                        if bp in self.bps:
-                            if subject_id not in self.bps[bp]:
-                                self.bps[bp].append(subject_id)
-                        else:
-                            self.bps[bp] = [subject_id]
-            progress.print_progress()
+    def dump_to_json(self, filename):
+        with open(filename, "w") as f:
+            f.write(json.dumps(self.bps))
 
     def print_results(self, filepath=None, alt_bps=None):
         bps = self.bps
@@ -283,7 +292,7 @@ class ProgressTracker():
     def execution_time(self):
         return datetime.datetime.now() - self.start
 
-def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None):
+def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None, gaf_file=None):
     # onto, aset = setup_pombase()
     ontology = OntologyFactory().create("go")
     afactory = AssociationSetFactory()

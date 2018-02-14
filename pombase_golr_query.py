@@ -122,6 +122,8 @@ class AnnotationDataExtracter():
             relevant_ext = None
             if 'annotation_extensions' in annot:
                 relevant_ext = self.relevant_extension(annot["annotation_extensions"], relations, ids)
+            elif 'object_extensions' in annot:
+                relevant_ext = self.relevant_object_extension(annot["object_extensions"]["union_of"], relations, ids)
             if relevant_ext is not None:
                 annots.append(annot)
         return annots
@@ -135,15 +137,37 @@ class AnnotationDataExtracter():
                 elif rel["label"] in relations and ext["relationship"]["id"] in ids:
                     return ext
 
+    def relevant_object_extension(self, exts, relations, ids=None):
+        for ext in exts:
+            for rel in ext["intersection_of"]:
+                if ids is None:
+                    if rel["property"] in relations:
+                        return ext
+                elif rel["property"] in relations and rel["filler"] in ids:
+                    return ext
+
     def relevant_mf_extension(self, annotation, bp, tad):
+        extensions = None
         if 'annotation_extensions' in annotation:
+            extensions = annotation["annotation_extensions"]
             # 1a - extension having "part_of(bp)"
-            ext = self.relevant_extension(annotation["annotation_extensions"], mf_part_of_relations, [bp])
+            ext = self.relevant_extension(extensions, mf_part_of_relations, [bp])
             if ext is not None:
                 return ext
 
             # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
-            ext = self.relevant_extension(annotation["annotation_extensions"], mf_gene_relations, tad.bps[bp])
+            ext = self.relevant_extension(extensions, mf_gene_relations, tad.bps[bp])
+            if ext is not None:
+                return ext
+        if 'object_extensions' in annotation:
+            extensions = annotation["object_extensions"]["union_of"]
+            # 1a - extension having "part_of(bp)"
+            ext = self.relevant_object_extension(extensions, mf_part_of_relations, [bp])
+            if ext is not None:
+                return ext
+
+            # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
+            ext = self.relevant_object_extension(extensions, mf_gene_relations, tad.bps[bp])
             if ext is not None:
                 return ext
 
@@ -171,11 +195,18 @@ class AnnotationDataExtracter():
 
     def cc_ext_description(self, ext):
         descriptions = []
-        for rel in ext["relationship"]["relation"]:
-            if rel["label"] in cc_relations:
-                relation = rel["label"]
-                object_id = ext["relationship"]["id"]
-                descriptions.append(relation + "(" + object_id + ") - " + self.analyzer.label(object_id))
+        if "relationship" in ext:
+            for rel in ext["relationship"]["relation"]:
+                if rel["label"] in cc_relations:
+                    relation = rel["label"]
+                    object_id = ext["relationship"]["id"]
+                    descriptions.append(relation + "(" + object_id + ") - " + self.analyzer.label(object_id))
+        elif "intersection_of" in ext:
+            for rel in ext["intersection_of"]:
+                if rel["property"] in cc_relations:
+                    relation = rel["property"]
+                    object_id = ext["filler"]
+                    descriptions.append(relation + "(" + object_id + ") - " + self.analyzer.label(object_id))
         if len(descriptions) > 0:
             return descriptions
 
@@ -187,13 +218,17 @@ class AnnotationDataExtracter():
 
     def access_extensions(self, annotation, check_func):
         return_values = []
+        extensions = []
         if "annotation_extensions" in annotation:
-            for ext in annotation["annotation_extensions"]:
-                result = check_func(ext)
-                if type(result) is bool:
-                    return result
-                elif result is not None:
-                    return_values.append(result)
+            extensions = annotation["annotation_extensions"]
+        elif "object_extensions" in annotation:
+            extensions = annotation["object_extensions"]["union_of"]
+        for ext in extensions:
+            result = check_func(ext)
+            if type(result) is bool:
+                return result
+            elif result is not None:
+                return_values.append(result)
         return return_values
 
     def direct_cc_annotations(self, annotations):
@@ -237,9 +272,14 @@ class AnnotationDataExtracter():
 
     def get_gene_connection(self, ext):
         connections = []
-        for rel in ext["relationship"]["relation"]:
-            if rel["label"] in mf_gene_relations:
-                connections.append([ext["relationship"]["id"], rel["label"]])
+        if "relationship" in ext:
+            for rel in ext["relationship"]["relation"]:
+                if rel["label"] in mf_gene_relations:
+                    connections.append([ext["relationship"]["id"], rel["label"]])
+        elif "intersection_of" in ext:
+            for rel in ext["intersection_of"]:
+                if rel["property"] in mf_gene_relations:
+                    connections.append([rel["filler"], rel["property"]])
         if len(connections) > 0:
             return connections
 
@@ -253,15 +293,20 @@ class AnnotationDataExtracter():
                     is_first_in_list = False
                 if "molecular_function" in gene_info[k]:
                     mf = gene_info[k]["molecular_function"]
-                    print(k + " - " + mf["object"]["id"] + " - " + mf["object"]["label"])
+                    # print(k + " - " + mf["object"]["id"] + " - " + mf["object"]["label"])
+                    print(k + " - " + mf["object"]["id"] + " - " + self.object_label(mf["object"], tad.ontology))
                     mf_ext = self.relevant_mf_extension(mf, gene_info[k]["bp"], tad)
                     if mf_ext is not None:
-                        relation = mf_ext["relationship"]["relation"][0]["label"]
-                        object_id = mf_ext["relationship"]["id"]
-                        print("  Ext: " + relation + "(" + object_id + ") - " + self.analyzer.label(object_id))
+                        # relation = mf_ext["relationship"]["relation"][0]["label"]
+                        relation = self.relation_label(mf_ext)
+                        # object_id = mf_ext["relationship"]["id"]
+                        object_id = self.relation_object_id(mf_ext)
+                        object_label = self.analyzer.label(object_id)
+                        object_label = object_label if object_label is not None else object_id
+                        print("  Ext: " + relation + "(" + object_id + ") - " + object_label)
                 if "cellular_component" in gene_info[k]:
                     cc = gene_info[k]["cellular_component"]
-                    print(k + " - " + cc["object"]["id"] + " - " + cc["object"]["label"])
+                    print(k + " - " + cc["object"]["id"] + " - " + self.object_label(cc["object"], tad.ontology))
                     for d_list in self.access_extensions(cc, self.cc_ext_description):
                         print("  Ext: " + "; ".join(d_list))
         else:
@@ -285,6 +330,25 @@ class AnnotationDataExtracter():
                         for d_list in self.access_extensions(cc, self.cc_ext_description):
                             f.write("  Ext: " + "; ".join(d_list) + "\n")
                 f.write("\n")
+
+    def object_label(self, obj_dict, onto):
+        if "label" in obj_dict:
+            return obj_dict["label"]
+        else:
+            return onto.label(obj_dict["id"])
+
+    ### Needed because golr extension json and gaf parsed structure differ
+    def relation_label(self, obj_ext):
+        if "relationship" in obj_ext:
+            return obj_ext["relationship"]["relation"][0]["label"]
+        else:
+            return obj_ext["intersection_of"][0]["property"]
+
+    def relation_object_id(self, obj_ext):
+        if "relationship" in obj_ext:
+            return obj_ext["relationship"]["id"]
+        else:
+            return obj_ext["intersection_of"][0]["filler"]
 
 def genes_and_annots_for_bp(bp_term):
     # pombase_annots = query_for_annots()
