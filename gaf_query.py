@@ -1,6 +1,8 @@
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 from ontobio.io.gafparser import GafParser
+from ontobio.sparql.sparql_ontology import EagerRemoteSparqlOntology
+from ontobio.ontol import Ontology
 from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer, ProgressTracker
 from pombase_golr_query import AnnotationDataExtracter
 
@@ -27,8 +29,14 @@ class GafAnnotationSet():
     def subject_object_query(self, subject_id, object_id, gafs=None):
         return self.annotations_for_object(object_id, self.annotations_for_subject(subject_id))
 
+class NoCacheEagerRemoteSparqlOntology(EagerRemoteSparqlOntology):
+    # Override cuz I don't care about text definitions or synonyms right now
+    def subontology(self, nodes=None, **args):
+        return Ontology.subontology(self, nodes, **args)
+
 def genes_and_annots_for_bp(bp_term, filename, json_file=None):
-    ontology = OntologyFactory().create("go")
+    # ontology = OntologyFactory().create("go")
+    ontology = NoCacheEagerRemoteSparqlOntology("go")
     afactory = AssociationSetFactory()
     a_set = afactory.create(ontology, file=filename, fmt="gaf")
 

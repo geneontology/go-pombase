@@ -310,6 +310,13 @@ def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None, gaf_file=Non
     tad.print_results(s_out, tad.term_subset(unpaired_bps))
     grouper.print_clusters(c_list, c_out)
 
+def process_tad_and_dump_out(filename, json_outfile):
+    ontology = OntologyFactory().create("go")
+    afactory = AssociationSetFactory()
+    a_set = afactory.create(ontology, file=filename, fmt="gaf")
+    tad = TermAnnotationDictionary(ontology, a_set)
+    tad.dump_to_json(json_outfile)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', "--term_gene_count_outfile", type=str, required=False,
@@ -322,6 +329,10 @@ def main():
                         help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
     parser.add_argument('-m', "--m_value", type=str, required=False,
                         help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between the a pair is greater than or equal to min(m, number of genes in X, number of genes in Y)")
+    parser.add_argument('-g', "--gaf_source", type=str, required=True,
+                        help="filename of GAF file to use as annotation source")
+    parser.add_argument('-j', "--dump_tad_json", type=str, required=False,
+                        help="Save TermAnnotationDictionary values to json file for reuse")
 
     args = parser.parse_args()
     if args.n_value is not None:
@@ -329,8 +340,13 @@ def main():
     if args.m_value is not None:
         args.m_value = int(args.m_value)
 
-    print("Getting your lists for you...")
-    do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile)
+    if args.dump_tad_json is not None:
+        print("Saving TermAnnotationDictionary values to " + args.dump_tad_json + "...")
+        process_tad_and_dump_out(args.gaf_source, args.dump_tad_json)
+        print("JSON created")
+    else:
+        print("Getting your lists for you...")
+        do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile)
 
 if __name__ == "__main__":
     main()

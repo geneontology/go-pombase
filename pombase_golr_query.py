@@ -242,10 +242,10 @@ class AnnotationDataExtracter():
         connections = GeneConnectionSet()
         for annot in annotations:
             # annotation of the gene product to the GO term “protein binding” 
-            if "evidence_with" in annot and annot["object"]["id"] == "GO:0005515":
-                with_genes = annot["evidence_with"]
+            if "evidence" in annot and "with_support_from" in annot["evidence"] and annot["object"]["id"] == "GO:0005515":
+                with_genes = annot["evidence"]["with_support_from"]
                 for wg in with_genes:
-                    connection = GeneConnection(annot["subject"]["id"], wg, "evidence_with", annot)
+                    connection = GeneConnection(annot["subject"]["id"], wg, "with_support_from", annot)
                     if wg in tad.bps[bp] and not connections.contains(connection):
                         connections.append(connection)
         return connections
@@ -262,7 +262,7 @@ class AnnotationDataExtracter():
                     connection = None
                     if gene[1] in ["has_regulation_target","regulates activity of"]:
                         connection = GeneConnection(annot["subject"]["id"], gene[0], gene[1], annot)
-                    elif gene[1] in ["has input","has_direct_input"]:
+                    elif gene[1] in ["has input","has_direct_input"] and annot["subject"]["id"] != gene[0]:
                         connection = GeneConnection(annot["subject"]["id"], gene[0], gene[1], annot)
                     # connection = (annot["subject"]["id"],gene[0])
                     if connection and gene[0] in tad.bps[bp] and not connections.contains(connection):

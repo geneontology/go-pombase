@@ -10,6 +10,7 @@ from rdflib.namespace import Namespace
 import rdflib
 import logging
 import argparse
+import datetime
 from pombase_direct_bp_annots_query import setup_pombase, GOTermAnalyzer
 from pombase_golr_query import query_for_annots, GeneConnectionSet, GeneConnection
 # from pombase_golr_query import genes_and_annots_for_bp
@@ -38,13 +39,7 @@ COLOCALIZES_WITH = URIRef(expand_uri(ro.colocalizes_with))
 MOLECULAR_FUNCTION = URIRef(expand_uri(upt.molecular_function))
 REGULATES = URIRef("http://purl.obolibrary.org/obo/RO_0002211")
 
-# def get_aspect(go_term):
-#     if analyzer.is_molecular_function(go_term):
-#         return 'F'
-#     elif analyzer.is_cellular_component(go_term):
-#         return 'C'
-#     elif analyzer.is_biological_process(go_term):
-#         return 'P'
+now = datetime.datetime.now()
 
 class Annoton():
     def __init__(self, gene_info, subject_id):
@@ -71,14 +66,13 @@ class CamTurtleRdfWriter(TurtleRdfWriter):
 
         # Model attributes TODO: Should move outside init
         self.graph.add((self.base, URIRef("http://purl.org/pav/providedBy"), Literal("http://geneontology.org")))        
-        self.graph.add((self.base, DC.date, Literal("2018-02-06"))) #TODO
+        self.graph.add((self.base, DC.date, Literal(str(now.year) + "-" + str(now.month) + "-" + str(now.day))))
         self.graph.add((self.base, DC.title, Literal(modeltitle)))
         self.graph.add((self.base, DC.contributor, Literal("http://orcid.org/0000-0002-6659-0416"))) #TODO
         self.graph.add((self.base, URIRef("http://geneontology.org/lego/modelstate"), Literal("development")))
         self.graph.add((self.base, OWL.versionIRI, self.base))
         self.graph.add((self.base, OWL.imports, URIRef("http://purl.obolibrary.org/obo/go/extensions/go-lego.owl")))
 
-# class AnnotonCamRdfTransform(RdfTransform):
 class AnnotonCamRdfTransform(CamRdfTransform):
     def __init__(self, writer=None):
         CamRdfTransform.__init__(self, writer)
@@ -89,8 +83,6 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         self.bp_id = None
 
     def translate_annoton(self, annoton, and_xps=None):
-        
-
         # See https://github.com/biolink/ontobio/pull/136
         # if the association has an annotation extension, and this
         # is a union, then we treat each element in the union
@@ -112,7 +104,6 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         obj_uri = self.uri(obj)
 
         # E.g. instance of gene product class
-        # enabler_id = genid(base=self.writer.base)
         if sub not in annoton.individuals:
             enabler_id = genid(base=self.writer.base + '/')
             annoton.individuals[sub] = enabler_id
@@ -122,7 +113,6 @@ class AnnotonCamRdfTransform(CamRdfTransform):
             enabler_id = annoton.individuals[sub]
 
         # E.g. instance of GO class
-        # tgt_id = genid(base=self.writer.base)
         if obj["id"] not in annoton.individuals:
             tgt_id = genid(base=self.writer.base + '/')
             annoton.individuals[obj["id"]] = tgt_id
@@ -131,22 +121,7 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         else:
             tgt_id = annoton.individuals[obj["id"]]
 
-        # aspect = association['aspect']
         stmt = None
-
-        # todo: use relation
-        # if aspect == 'F':
-        #     stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
-        # elif aspect == 'P':
-        #     mf_id = genid(base=self.writer.base)
-        #     self.emit_type(mf_id, MOLECULAR_FUNCTION)
-        #     stmt = self.emit(mf_id, ENABLED_BY, enabler_id)
-        #     stmt = self.emit(mf_id, PART_OF, tgt_id)
-        # elif aspect == 'C':
-        #     mf_id = genid(base=self.writer.base)
-        #     self.emit_type(mf_id, MOLECULAR_FUNCTION)
-        #     stmt = self.emit(mf_id, ENABLED_BY, enabler_id)
-        #     stmt = self.emit(mf_id, OCCURS_IN, tgt_id)
 
         self.emit_type(tgt_id, obj_uri)
         enabled_by_stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
@@ -254,6 +229,21 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         if len(bnodes) > 0:
             return list(bnodes)[0]
 
+    def emit_axiom(self, source_id, property_id, target_id):
+        stmt_id = self.blanknode()
+        self.emit_type(stmt_id, OWL.Axiom)
+        self.emit(stmt_id, OWL.annotatedSource, source_id)
+        self.emit(stmt_id, OWL.annotatedProperty, property_id)
+        self.emit(stmt_id, OWL.annotatedTarget, target_id)
+        return stmt_id
+
+    def find_annotons(self, enabled_by):
+        found_annotons = []
+        for annoton in self.annotons:
+            if annoton.enabled_by == enabled_by:
+                found_annotons.append(annoton)
+        return found_annotons
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', "--bp_term", type=str, required=True,
@@ -268,13 +258,11 @@ def main():
     args = parser.parse_args()
 
     bp = args.bp_term
-    # filename = "gene_association.pombase"
     gene_info = genes_and_annots_for_bp(bp, args.gaf_source, json_file=args.tad_json)
 
     modeltitle = args.filename
     if modeltitle.endswith(".ttl"):
         modeltitle = modeltitle[:-4]
-    # modeltitle = "rdf_output_annotons_queries"
     cam_writer = CamTurtleRdfWriter(modeltitle)
     writer = AnnotonCamRdfTransform(cam_writer)
     writer.bp_id = genid(base=writer.writer.base + '/')
@@ -292,6 +280,8 @@ def main():
         if annoton.molecular_function is not None:
             writer.annotons.append(annoton)
 
+    global_individuals_list = {}
+
     # translate lists of annotations
     for annoton in writer.annotons:
         # Class
@@ -300,6 +290,38 @@ def main():
             writer.classes.append(annoton.enabled_by)
 
         writer.translate_annoton(annoton)
+
+        global_individuals_list = {**global_individuals_list, **annoton.individuals}
+
+    ### Connections - Now that all individuals should have been created
+    connection_relations = {"has_direct_input" : "RO:0002400",
+                            "has input" : "RO:0002233",
+                            "has_regulation_target" : "RO:0002211", # regulates
+                            "regulates_activity_of" : "RO:0002578", # directly regulates
+                            "with_support_from" : "RO:0002233" # has input
+                            }
+    for annoton in writer.annotons:
+        for connection in annoton.connections.gene_connections:
+            source_id = annoton.individuals[connection.gp_a]
+            if connection.relation in ["has_direct_input", "has input", "with_support_from"]:
+                property_id = URIRef(expand_uri(connection_relations[connection.relation]))
+                target_id = global_individuals_list[connection.gp_b]
+                # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
+                writer.emit(source_id, property_id, target_id)
+                # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
+                writer.emit_axiom(source_id, property_id, target_id)
+            elif connection.relation in ["has_regulation_target", "regulates_activity_of"]:
+                property_id = URIRef(expand_uri(connection_relations[connection.relation]))
+                # find annoton(s) of regulation target gene product
+                target_annotons = writer.find_annotons(connection.gp_b)
+                for t_annoton in target_annotons:
+                    mf_annotation = t_annoton.get_aspect_object(gene_info[connection.gp_b], "molecular_function")
+                    if mf_annotation is not None:
+                        target_id = global_individuals_list[mf_annotation["object"]["id"]]
+                        # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
+                        writer.emit(source_id, property_id, target_id)
+                        # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
+                        writer.emit_axiom(source_id, property_id, target_id)
 
     with open(modeltitle + ".ttl", 'wb') as f:
         writer.writer.serialize(destination=f)
