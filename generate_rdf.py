@@ -2,6 +2,7 @@ from ontobio.rdfgen.assoc_rdfgen import CamRdfTransform, TurtleRdfWriter, RdfTra
 from ontobio.vocabulary.relations import OboRO, Evidence
 from ontobio.vocabulary.upper import UpperLevel
 from ontobio.ontol_factory import OntologyFactory
+from ontobio.assoc_factory import AssociationSetFactory
 from prefixcommons.curie_util import expand_uri
 from rdflib.namespace import OWL, RDF
 from rdflib import Literal
@@ -14,7 +15,7 @@ import datetime
 from pombase_direct_bp_annots_query import setup_pombase, GOTermAnalyzer
 from pombase_golr_query import query_for_annots, GeneConnectionSet, GeneConnection
 # from pombase_golr_query import genes_and_annots_for_bp
-from gaf_query import genes_and_annots_for_bp
+from gaf_query import genes_and_annots_for_bp, NoCacheEagerRemoteSparqlOntology
 
 # logging.basicConfig(level=logging.INFO)
 
@@ -40,6 +41,15 @@ MOLECULAR_FUNCTION = URIRef(expand_uri(upt.molecular_function))
 REGULATES = URIRef("http://purl.obolibrary.org/obo/RO_0002211")
 
 now = datetime.datetime.now()
+onto = NoCacheEagerRemoteSparqlOntology("go")
+a_set = AssociationSetFactory().create(onto, file="gene_association.pombase", fmt="gaf")
+
+def print_triple(s, p, o):
+    s_label = a_set.label(s)
+    o_label = a_set.label(o)
+    if o_label is None:
+        o_label = o
+    print(s + " (" + s_label + ") " + p + " " + o + " (" + o_label + ")")
 
 class Annoton():
     def __init__(self, gene_info, subject_id):
@@ -49,10 +59,58 @@ class Annoton():
         self.biological_process = self.get_aspect_object(gene_info, "bp")
         self.connections = gene_info["connections"]
         self.individuals = {}
+        if subject_id == "PomBase:SPBC29B5.01":
+            for connect in self.connections.gene_connections:
+                print(connect.print())
 
     def get_aspect_object(self, gene_info, aspect):
         if aspect in gene_info:
             return gene_info[aspect]
+
+class GoCamModel():
+    def __init__(self, filename):
+        self.modeltitle = filename
+        if self.modeltitle.endswith(".ttl"):
+            self.modeltitle = self.modeltitle[:-4]
+        cam_writer = CamTurtleRdfWriter(self.modeltitle)
+        self.writer = AnnotonCamRdfTransform(cam_writer)
+        self.classes = []
+        self.individuals = {}   # Maintain entity-to-IRI dictionary. Prevents dup individuals but we may want dups?
+        self.declare_properties()
+
+    def declare_properties(self):
+        # AnnotionProperty
+        self.writer.emit_type(URIRef("http://geneontology.org/lego/evidence"), OWL.AnnotationProperty)
+        self.writer.emit_type(URIRef("http://geneontology.org/lego/hint/layout/x"), OWL.AnnotationProperty)
+        self.writer.emit_type(URIRef("http://geneontology.org/lego/hint/layout/y"), OWL.AnnotationProperty)
+        self.writer.emit_type(URIRef("http://purl.org/pav/providedBy"), OWL.AnnotationProperty)
+
+    def declare_class(self, class_id):
+        self.writer.emit_type(URIRef("http://identifiers.org/" + class_id), OWL.Class)
+        self.classes.append(class_id)
+
+    def declare_individual(self, entity_id):
+        entity = genid(base=self.writer.writer.base + '/')
+        self.writer.emit_type(entity, self.writer.uri(entity_id))
+        self.writer.emit_type(entity, OWL.NamedIndividual)
+        self.individuals[entity_id] = entity
+        return entity
+
+    def add_axiom(self, statement):
+        (source_id, property_id, target_id) = statement
+        stmt_id = self.writer.blanknode()
+        self.writer.emit_type(stmt_id, OWL.Axiom)
+        self.writer.emit(stmt_id, OWL.annotatedSource, source_id)
+        self.writer.emit(stmt_id, OWL.annotatedProperty, property_id)
+        self.writer.emit(stmt_id, OWL.annotatedTarget, target_id)
+        return stmt_id
+
+    def add_evidence(self, axiom, evidence_code, references):
+        ev = {'type' : evidence_code,
+            'has_supporting_reference' : references}
+        # Try finding existing evidence object containing same type and references
+        ev_id = self.writer.find_or_create_evidence_id(ev)
+        self.writer.emit(axiom, URIRef("http://geneontology.org/lego/evidence"), ev_id)
 
 class CamTurtleRdfWriter(TurtleRdfWriter):
     def __init__(self, modeltitle):
@@ -125,6 +183,7 @@ class AnnotonCamRdfTransform(CamRdfTransform):
 
         self.emit_type(tgt_id, obj_uri)
         enabled_by_stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
+        print_triple(obj["id"], "enabled_by", sub) # print triple
         part_of_stmt = self.emit(tgt_id, PART_OF, self.bp_id)
 
         self.translate_evidence(annoton.molecular_function, enabled_by_stmt)
@@ -137,6 +196,7 @@ class AnnotonCamRdfTransform(CamRdfTransform):
                 self.emit_type(cc_id, cc_uri)
                 self.emit_type(cc_id, OWL.NamedIndividual)
             occurs_in_stmt = self.emit(tgt_id, OCCURS_IN, cc_id)
+            print_triple(obj["id"], "occurs_in", cc_object_id) # print triple
             self.translate_evidence(annoton.cellular_component, occurs_in_stmt)
         
         if and_xps is not None:
@@ -237,12 +297,26 @@ class AnnotonCamRdfTransform(CamRdfTransform):
         self.emit(stmt_id, OWL.annotatedTarget, target_id)
         return stmt_id
 
-    def find_annotons(self, enabled_by):
+    def find_annotons(self, enabled_by, annotons_list=None):
         found_annotons = []
-        for annoton in self.annotons:
+        if annotons_list is not None:
+            annotons = annotons_list
+        else:
+            annotons = self.annotons
+        for annoton in annotons:
             if annoton.enabled_by == enabled_by:
                 found_annotons.append(annoton)
         return found_annotons
+
+    def add_individual(self, individual_id, annoton):
+        obj_uri = self.uri(individual_id)
+        if individual_id not in annoton.individuals:
+            tgt_id = genid(base=self.writer.base + '/')
+            annoton.individuals[individual_id] = tgt_id
+            self.emit_type(tgt_id, obj_uri)
+            self.emit_type(tgt_id, OWL.NamedIndividual)
+        else:
+            tgt_id = annoton.individuals[individual_id]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -302,8 +376,17 @@ def main():
                             }
     for annoton in writer.annotons:
         for connection in annoton.connections.gene_connections:
-            source_id = annoton.individuals[connection.gp_a]
             if connection.relation in ["has_direct_input", "has input", "with_support_from"]:
+                try:
+                    source_id = annoton.individuals[connection.object_id]
+                except KeyError:
+                    writer.add_individual(connection.object_id, annoton)
+                    source_id = annoton.individuals[connection.object_id]
+                object_source_id = annoton.individuals[annoton.molecular_function["object"]["id"]]
+                # Add enabled by stmt for object_id
+                e_stmt = writer.emit(object_source_id, ENABLED_BY, annoton.individuals[annoton.enabled_by])
+                writer.emit_axiom(object_source_id, ENABLED_BY, annoton.individuals[annoton.enabled_by])
+                # writer.translate_evidence(connection.annotation, e_stmt)
                 property_id = URIRef(expand_uri(connection_relations[connection.relation]))
                 target_id = global_individuals_list[connection.gp_b]
                 # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
@@ -311,6 +394,7 @@ def main():
                 # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
                 writer.emit_axiom(source_id, property_id, target_id)
             elif connection.relation in ["has_regulation_target", "regulates_activity_of"]:
+                source_id = annoton.individuals[connection.gp_a]
                 property_id = URIRef(expand_uri(connection_relations[connection.relation]))
                 # find annoton(s) of regulation target gene product
                 target_annotons = writer.find_annotons(connection.gp_b)

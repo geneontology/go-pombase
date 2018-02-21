@@ -81,13 +81,24 @@ class GeneConnectionSet():
 
     def merge(self, other_set):
         for connection in other_set.gene_connections:
+            if connection.annotation["object"]["id"] == "GO:0005515": # Check if triple through extension already exists
+                if self.find(connection.gp_a, "has_direct_input", connection.gp_b):
+                    continue
             if not self.contains(connection):
                 self.append(connection)
 
+    def find(self, gp_a, relation, gp_b):
+        connections = []
+        for connection in self.gene_connections:
+            if connection.gp_a == gp_a and connection.relation == relation and connection.gp_b == gp_b:
+                connections.append(connection)
+        return connections
+
 class GeneConnection():
-    def __init__(self, gene_a, gene_b, relation, annotation=None):
+    def __init__(self, gene_a, gene_b, object_id, relation, annotation=None):
         self.gp_a = gene_a
         self.gp_b = gene_b
+        self.object_id = object_id
         self.relation = relation
         self.annotation = annotation
 
@@ -96,6 +107,9 @@ class GeneConnection():
             return True
         else:
             return False
+
+    def print(self):
+        print(self.gp_a + " " + self.relation + " " + self.gp_b + " through " + self.object_id)
 
 def get_specific_annots(annots, subject_id, object_id):
     found_annots = []
@@ -245,8 +259,10 @@ class AnnotationDataExtracter():
             if "evidence" in annot and "with_support_from" in annot["evidence"] and annot["object"]["id"] == "GO:0005515":
                 with_genes = annot["evidence"]["with_support_from"]
                 for wg in with_genes:
-                    connection = GeneConnection(annot["subject"]["id"], wg, "with_support_from", annot)
-                    if wg in tad.bps[bp] and not connections.contains(connection):
+                    connection = None
+                    if annot["subject"]["id"] != wg and wg in tad.bps[bp]:
+                        connection = GeneConnection(annot["subject"]["id"], wg, annot["object"]["id"], "with_support_from", annot)
+                    if connection is not None and not connections.contains(connection):
                         connections.append(connection)
         return connections
 
@@ -261,9 +277,9 @@ class AnnotationDataExtracter():
                 for gene in gene_list:
                     connection = None
                     if gene[1] in ["has_regulation_target","regulates activity of"]:
-                        connection = GeneConnection(annot["subject"]["id"], gene[0], gene[1], annot)
+                        connection = GeneConnection(annot["subject"]["id"], gene[0], annot["object"]["id"], gene[1], annot)
                     elif gene[1] in ["has input","has_direct_input"] and annot["subject"]["id"] != gene[0]:
-                        connection = GeneConnection(annot["subject"]["id"], gene[0], gene[1], annot)
+                        connection = GeneConnection(annot["subject"]["id"], gene[0], annot["object"]["id"], gene[1], annot)
                     # connection = (annot["subject"]["id"],gene[0])
                     if connection and gene[0] in tad.bps[bp] and not connections.contains(connection):
                         connections.append(connection)
