@@ -1,5 +1,6 @@
 from generate_rdf import GoCamModel, Annoton
 from gaf_query import genes_and_annots_for_bp
+from pombase_golr_query import GeneConnectionSet
 from rdflib.term import URIRef
 from ontobio.vocabulary.relations import OboRO
 from prefixcommons.curie_util import expand_uri
@@ -34,8 +35,6 @@ def main():
     for gene in gene_info:
         annoton = Annoton(gene_info[gene], gene)
         if annoton.molecular_function is not None:
-            if annoton.enabled_by == "PomBase:SPBC409.07c":
-                print("Object ID is " + annoton.molecular_function["object"]["id"])
             annotons.append(annoton)
 
     global_individuals_list = {}
@@ -90,9 +89,10 @@ def main():
                             "regulates_activity_of" : "RO:0002578", # directly regulates
                             "with_support_from" : "RO:0002233" # has input
                             }
+    global_connections_list = GeneConnectionSet()   # Tracking what connections have been added so far
     for annoton in annotons:
         for connection in annoton.connections.gene_connections:
-            if connection.relation in ["has_direct_input", "has input", "with_support_from"]:
+            if connection.relation in ["has_direct_input", "has input"]:
                 try:
                     source_id = annoton.individuals[connection.object_id]
                 except KeyError:
@@ -108,8 +108,10 @@ def main():
                 model.writer.emit(source_id, property_id, target_id)
                 # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
                 model.writer.emit_axiom(source_id, property_id, target_id)
+                global_connections_list.append(connection)
             elif connection.relation in ["has_regulation_target", "regulates_activity_of"]:
-                source_id = annoton.individuals[connection.gp_a]
+                # source_id = annoton.individuals[connection.gp_a]
+                source_id = annoton.individuals[connection.object_id]
                 # Probably need to switch source to be object (GO MF) of connection
                 property_id = URIRef(expand_uri(connection_relations[connection.relation]))
                 # find annoton(s) of regulation target gene product
@@ -122,6 +124,25 @@ def main():
                         model.writer.emit(source_id, property_id, target_id)
                         # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
                         model.writer.emit_axiom(source_id, property_id, target_id)
+                global_connections_list.append(connection)
+
+    # Now see if the with connections can fill anything in
+    for annoton in annotons:
+        for connection in annoton.connections.gene_connections:
+            if connection.relation in ["with_support_from"] and not global_connections_list.contains(connection):
+                try:
+                    source_id = annoton.individuals[connection.object_id]
+                except KeyError:
+                    source_id = model.declare_individual(connection.object_id)
+                    annoton.individuals[connection.object_id] = source_id
+                model.writer.emit(source_id, ENABLED_BY, annoton.individuals[annoton.enabled_by])
+                model.writer.emit_axiom(source_id, ENABLED_BY, annoton.individuals[annoton.enabled_by])
+                property_id = URIRef(expand_uri(connection_relations[connection.relation]))
+                target_id = global_individuals_list[connection.gp_b]
+                # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
+                model.writer.emit(source_id, property_id, target_id)
+                # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
+                model.writer.emit_axiom(source_id, property_id, target_id)
 
     with open(model.modeltitle + ".ttl", 'wb') as f:
         model.writer.writer.serialize(destination=f)

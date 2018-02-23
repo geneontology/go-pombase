@@ -59,9 +59,6 @@ class Annoton():
         self.biological_process = self.get_aspect_object(gene_info, "bp")
         self.connections = gene_info["connections"]
         self.individuals = {}
-        if subject_id == "PomBase:SPBC29B5.01":
-            for connect in self.connections.gene_connections:
-                print(connect.print())
 
     def get_aspect_object(self, gene_info, aspect):
         if aspect in gene_info:
@@ -183,7 +180,6 @@ class AnnotonCamRdfTransform(CamRdfTransform):
 
         self.emit_type(tgt_id, obj_uri)
         enabled_by_stmt = self.emit(tgt_id, ENABLED_BY, enabler_id)
-        print_triple(obj["id"], "enabled_by", sub) # print triple
         part_of_stmt = self.emit(tgt_id, PART_OF, self.bp_id)
 
         self.translate_evidence(annoton.molecular_function, enabled_by_stmt)
@@ -196,7 +192,6 @@ class AnnotonCamRdfTransform(CamRdfTransform):
                 self.emit_type(cc_id, cc_uri)
                 self.emit_type(cc_id, OWL.NamedIndividual)
             occurs_in_stmt = self.emit(tgt_id, OCCURS_IN, cc_id)
-            print_triple(obj["id"], "occurs_in", cc_object_id) # print triple
             self.translate_evidence(annoton.cellular_component, occurs_in_stmt)
         
         if and_xps is not None:

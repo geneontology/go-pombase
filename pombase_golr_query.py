@@ -4,11 +4,16 @@ from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 # from pombase_direct_bp_annots_query import TermAnnotationDictionary, is_molecular_function, is_cellular_component, setup_pombase, pair_bp_sets_with_similar_genes, uniqueify
 from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer, ProgressTracker
+# from gaf_query import NoCacheEagerRemoteSparqlOntology
 import json
 
 mf_part_of_relations = ['part_of']
 mf_gene_relations =['has input','has_direct_input','has_regulation_target','regulates activity of']
 cc_relations = ['occurs in','occurs at']
+
+ontology = OntologyFactory().create("go")
+afactory = AssociationSetFactory()
+a_set = afactory.create(ontology, file="gene_association.pombase", fmt="gaf") # Labels for debugging
 
 class ExtensionGolrFields(GolrFields):
     ANNOTATION_EXTENSION_JSON="annotation_extension_json"
@@ -77,21 +82,24 @@ class GeneConnectionSet():
         for gc in self.gene_connections:
             if gc.equals(gene_connection):
                 return True
+            if gene_connection.relation == "with_support_from" and (self.find(gene_connection.gp_a, gene_connection.gp_b) or self.find(gene_connection.gp_b, gene_connection.gp_a)):
+                return True
         return False
 
     def merge(self, other_set):
         for connection in other_set.gene_connections:
             if connection.annotation["object"]["id"] == "GO:0005515": # Check if triple through extension already exists
-                if self.find(connection.gp_a, "has_direct_input", connection.gp_b):
+                if self.find(connection.gp_a, connection.gp_b, "has_direct_input"):
                     continue
             if not self.contains(connection):
                 self.append(connection)
 
-    def find(self, gp_a, relation, gp_b):
+    def find(self, gp_a, gp_b, relation=None):
         connections = []
         for connection in self.gene_connections:
-            if connection.gp_a == gp_a and connection.relation == relation and connection.gp_b == gp_b:
-                connections.append(connection)
+            if connection.gp_a == gp_a and connection.gp_b == gp_b:
+                if relation is None or connection.relation == relation:
+                    connections.append(connection)
         return connections
 
 class GeneConnection():
@@ -108,8 +116,8 @@ class GeneConnection():
         else:
             return False
 
-    def print(self):
-        print(self.gp_a + " " + self.relation + " " + self.gp_b + " through " + self.object_id)
+    def print_connection(self):
+        return self.gp_a + " (" + a_set.label(self.gp_a) + ") " + self.relation + " " + self.gp_b + " (" + a_set.label(self.gp_b) + ") through " + self.object_id + " (" + a_set.label(self.object_id) + ")"
 
 def get_specific_annots(annots, subject_id, object_id):
     found_annots = []
