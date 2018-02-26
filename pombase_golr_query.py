@@ -215,6 +215,11 @@ class AnnotationDataExtracter():
             if self.access_extensions(annot, self.is_extension_object_a_cc):
                 return annot
 
+    def cc_annotations(self, annotations):
+        cc_annots = self.direct_cc_annotations(annotations)
+        if len(cc_annots) > 0:
+            return cc_annots # 2b
+
     def cc_ext_description(self, ext):
         descriptions = []
         if "relationship" in ext:
@@ -405,13 +410,12 @@ def genes_and_annots_for_bp(bp_term):
             gene_info[g]["molecular_function"] = mf
         cc = extracter.relevant_cc_annotation(mf_annots) # 2a
         if cc is not None:
-            # ok_to_print_results = True
-            gene_info[g]["cellular_component"] = cc
-        cc_annots = []
-        if "cellular_component" not in gene_info[g]:       
-            cc_annots = extracter.direct_cc_annotations(gene_annots)
-            if len(cc_annots) > 0:
-                gene_info[g]["cellular_component"] = cc_annots[0] # 2b
+            gene_info[g]["cellular_component"] = [cc]
+        if "cellular_component" not in gene_info[g]:
+        #     cc_annots = extracter.direct_cc_annotations(gene_annots)
+        #     if len(cc_annots) > 0:
+        #         gene_info[g]["cellular_component"] = cc_annots[0] # 2b
+            gene_info[g]["cellular_component"] = extracter.cc_annotations(gene_annots)
         gene_info[g]["connections"] = extracter.get_gene_connections(mf_annots, bp_term, tad)
 
         progress.print_progress()

@@ -44,6 +44,8 @@ now = datetime.datetime.now()
 onto = NoCacheEagerRemoteSparqlOntology("go")
 a_set = AssociationSetFactory().create(onto, file="gene_association.pombase", fmt="gaf")
 
+non_pmid_list = []
+
 def print_triple(s, p, o):
     s_label = a_set.label(s)
     o_label = a_set.label(o)
@@ -65,7 +67,15 @@ class Annoton():
             return gene_info[aspect]
 
 class GoCamModel():
-    def __init__(self, filename):
+    relations_dict = {
+        "has_direct_input" : "RO:0002400",
+        "has input" : "RO:0002233",
+        "has_regulation_target" : "RO:0002211", # regulates
+        "regulates_activity_of" : "RO:0002578", # directly regulates
+        "with_support_from" : "RO:0002233" # has input
+    }
+
+    def __init__(self, filename, connection_relations=None):
         self.modeltitle = filename
         if self.modeltitle.endswith(".ttl"):
             self.modeltitle = self.modeltitle[:-4]
@@ -73,6 +83,10 @@ class GoCamModel():
         self.writer = AnnotonCamRdfTransform(cam_writer)
         self.classes = []
         self.individuals = {}   # Maintain entity-to-IRI dictionary. Prevents dup individuals but we may want dups?
+        if connection_relations is None:
+            self.connection_relations = GoCamModel.relations_dict
+        else:
+            self.connection_relations = connection_relations
         self.declare_properties()
 
     def declare_properties(self):
@@ -95,8 +109,10 @@ class GoCamModel():
 
     def add_axiom(self, statement):
         (source_id, property_id, target_id) = statement
-        stmt_id = self.writer.blanknode()
-        self.writer.emit_type(stmt_id, OWL.Axiom)
+        stmt_id = self.find_bnode(statement)
+        if stmt_id is None:
+            stmt_id = self.writer.blanknode()
+            self.writer.emit_type(stmt_id, OWL.Axiom)
         self.writer.emit(stmt_id, OWL.annotatedSource, source_id)
         self.writer.emit(stmt_id, OWL.annotatedProperty, property_id)
         self.writer.emit(stmt_id, OWL.annotatedTarget, target_id)
@@ -108,6 +124,66 @@ class GoCamModel():
         # Try finding existing evidence object containing same type and references
         ev_id = self.writer.find_or_create_evidence_id(ev)
         self.writer.emit(axiom, URIRef("http://geneontology.org/lego/evidence"), ev_id)
+
+    def add_connection(self, gene_connection, source_annoton):
+        # Switching from reusing existing activity node from annoton to creating new one for each connection - Maybe SPARQL first to check if annoton activity already used for connection?
+        # Check annoton for existing activity.
+        # if gene_connection.object_id in source_annoton.individuals:
+        #     # If exists and activity has connection relation,
+        #     # Look for two triples: (gene_connection.object_id, ENABLED_BY, source_annoton.enabled_by) and (gene_connection.object_id, connection_relations, anything)
+        source_id = None
+        uri_list = self.uri_list_for_individual(gene_connection.object_id)
+        o_count = 0
+        for u in uri_list:
+            if gene_connection.relation in self.connection_relations:
+                rel = URIRef(expand_uri(self.connection_relations[gene_connection.relation]))
+                # Annot MF should be declared by now - don't declare object_id if object_id == annot MF?
+                try:
+                    annot_mf = source_annoton.molecular_function["object"]["id"]
+                except:
+                    annot_mf = ""
+                if self.writer.writer.graph.__contains__((u,rel,None)) and gene_connection.object_id != annot_mf:
+                    source_id = self.declare_individual(gene_connection.object_id)
+                    source_annoton.individuals[gene_connection.object_id] = source_id
+                    break
+                # for t in self.writer.writer.graph.triples((u,ENABLED_BY,None)):
+
+                # if t[1] == OCCURS_IN:
+                #     print(gene_connection.object_id + " OCCURS_IN " + str(t[2]))
+        if source_id is None:
+            try:
+                source_id = source_annoton.individuals[gene_connection.object_id]
+            except KeyError:
+                source_id = self.declare_individual(gene_connection.object_id)
+                source_annoton.individuals[gene_connection.object_id] = source_id
+        # Add enabled by stmt for object_id - this is essentially adding another annoton connecting gene-to-extension/with-MF to the model
+        self.writer.emit(source_id, ENABLED_BY, source_annoton.individuals[source_annoton.enabled_by])
+        self.writer.emit_axiom(source_id, ENABLED_BY, source_annoton.individuals[source_annoton.enabled_by])
+        property_id = URIRef(expand_uri(self.connection_relations[gene_connection.relation]))
+        target_id = self.individuals[gene_connection.gp_b]
+        # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
+        self.writer.emit(source_id, property_id, target_id)
+        # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
+        self.writer.emit_axiom(source_id, property_id, target_id)
+
+    def uri_list_for_individual(self, individual):
+        uri_list = []
+        graph = self.writer.writer.graph
+        for t in graph.triples((None,None,self.writer.uri(individual))):
+            uri_list.append(t[0])
+        return uri_list
+
+    def find_bnode(self, triple):
+        (subject,predicate,object_id) = triple
+        s_triples = self.writer.writer.graph.triples((None, OWL.annotatedSource, subject))
+        s_bnodes = [s for s,p,o in s_triples]
+        p_triples = self.writer.writer.graph.triples((None, OWL.annotatedProperty, predicate))
+        p_bnodes = [s for s,p,o in p_triples]
+        o_triples = self.writer.writer.graph.triples((None, OWL.annotatedTarget, object_id))
+        o_bnodes = [s for s,p,o in o_triples]
+        bnodes = set(s_bnodes) & set(p_bnodes) & set(o_bnodes)
+        if len(bnodes) > 0:
+            return list(bnodes)[0]
 
 class CamTurtleRdfWriter(TurtleRdfWriter):
     def __init__(self, modeltitle):
@@ -184,15 +260,25 @@ class AnnotonCamRdfTransform(CamRdfTransform):
 
         self.translate_evidence(annoton.molecular_function, enabled_by_stmt)
         if annoton.cellular_component is not None:
-            cc_object_id = annoton.cellular_component["object"]["id"]
-            cc_uri = self.uri(cc_object_id)
-            if cc_object_id not in annoton.individuals:
-                cc_id = genid(base=self.writer.base + '/')
-                annoton.individuals[cc_object_id] = cc_id
-                self.emit_type(cc_id, cc_uri)
-                self.emit_type(cc_id, OWL.NamedIndividual)
-            occurs_in_stmt = self.emit(tgt_id, OCCURS_IN, cc_id)
-            self.translate_evidence(annoton.cellular_component, occurs_in_stmt)
+            # cc_object_id = annoton.cellular_component["object"]["id"]
+            # cc_uri = self.uri(cc_object_id)
+            # if cc_object_id not in annoton.individuals:
+            #     cc_id = genid(base=self.writer.base + '/')
+            #     annoton.individuals[cc_object_id] = cc_id
+            #     self.emit_type(cc_id, cc_uri)
+            #     self.emit_type(cc_id, OWL.NamedIndividual)
+            # occurs_in_stmt = self.emit(tgt_id, OCCURS_IN, cc_id)
+            # self.translate_evidence(annoton.cellular_component, occurs_in_stmt)
+            for cellular_component in annoton.cellular_component:
+                cc_object_id = cellular_component["object"]["id"]
+                cc_uri = self.uri(cc_object_id)
+                if cc_object_id not in annoton.individuals:
+                    cc_id = genid(base=self.writer.base + '/')
+                    annoton.individuals[cc_object_id] = cc_id
+                    self.emit_type(cc_id, cc_uri)
+                    self.emit_type(cc_id, OWL.NamedIndividual)
+                occurs_in_stmt = self.emit(tgt_id, OCCURS_IN, cc_id)
+                self.translate_evidence(cellular_component, occurs_in_stmt)
         
         if and_xps is not None:
             for ext in and_xps:
@@ -247,7 +333,6 @@ class AnnotonCamRdfTransform(CamRdfTransform):
     def find_or_create_evidence_id(self, evidence):
         for existing_evidence in self.evidences:
             if evidence["type"] == existing_evidence["type"] and set(evidence["has_supporting_reference"]) == set(existing_evidence["has_supporting_reference"]):
-                # print(existing_evidence["id"])
                 if "id" not in existing_evidence:
                     existing_evidence["id"] = genid(base=self.writer.base + '/')
                     self.ev_ids.append(existing_evidence["id"])
