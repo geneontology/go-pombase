@@ -40,7 +40,7 @@ def genes_and_annots_for_bp(bp_term, filename, json_file=None):
     afactory = AssociationSetFactory()
     a_set = afactory.create(ontology, file=filename, fmt="gaf")
 
-    gafs = GafParser().parse(filename)
+    gafs = GafParser().parse(filename, skipheader=True)
     gas = GafAnnotationSet(gafs)
 
     tad = TermAnnotationDictionary(ontology, a_set, json_file)
@@ -64,13 +64,15 @@ def genes_and_annots_for_bp(bp_term, filename, json_file=None):
         cc = extracter.relevant_cc_annotation(mf_annots) # 2a
         if cc is not None:
             # ok_to_print_results = True
-            gene_info[g]["cellular_component"] = cc
+            gene_info[g]["cellular_component"] = [cc]
         cc_annots = []
         if "cellular_component" not in gene_info[g]:       
         #     cc_annots = extracter.direct_cc_annotations(gene_annots)
         #     if len(cc_annots) > 0:
         #         gene_info[g]["cellular_component"] = cc_annots[0] # 2b
-            gene_info[g]["cellular_component"] = extracter.cc_annotations(gene_annots)
+            all_cc_annotations = extracter.cc_annotations(gene_annots)
+            if len(all_cc_annotations) == 1:
+                gene_info[g]["cellular_component"] = all_cc_annotations
         gene_info[g]["connections"] = extracter.get_gene_connections(mf_annots, bp_term, tad)
 
         progress.print_progress()

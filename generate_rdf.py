@@ -12,6 +12,7 @@ import rdflib
 import logging
 import argparse
 import datetime
+import os.path as path
 from pombase_direct_bp_annots_query import setup_pombase, GOTermAnalyzer
 from pombase_golr_query import query_for_annots, GeneConnectionSet, GeneConnection
 # from pombase_golr_query import genes_and_annots_for_bp
@@ -75,9 +76,13 @@ class GoCamModel():
         "with_support_from" : "RO:0002233" # has input
     }
 
-    def __init__(self, filename, connection_relations=None):
-        self.modeltitle = filename
-        if self.modeltitle.endswith(".ttl"):
+    def __init__(self, filepath, connection_relations=None):
+        self.filepath = filepath
+        self.modeltitle = path.basename(self.filepath)
+        # if self.modeltitle.endswith(".ttl"):
+        if path.splitext(self.filepath)[1] != ".ttl":
+            self.filepath += ".ttl"
+        else:
             self.modeltitle = self.modeltitle[:-4]
         cam_writer = CamTurtleRdfWriter(self.modeltitle)
         self.writer = AnnotonCamRdfTransform(cam_writer)

@@ -72,6 +72,7 @@ def generate_model(args):
         axiom_id = model.add_axiom(enabled_by_stmt)
         association = annoton.molecular_function
         model.add_evidence(axiom_id, association["evidence"]["type"], association["evidence"]["has_supporting_reference"])
+        # Record annotation
 
         if annoton.cellular_component is not None:
             for cellular_component in annoton.cellular_component:
@@ -83,6 +84,7 @@ def generate_model(args):
                 cc_axiom_id = model.add_axiom(occurs_in_stmt)
                 cc_association = cellular_component
                 model.add_evidence(cc_axiom_id, cc_association["evidence"]["type"], cc_association["evidence"]["has_supporting_reference"])
+                # Record annotation
         
         global_individuals_list = {**global_individuals_list, **annoton.individuals}
 
@@ -92,6 +94,7 @@ def generate_model(args):
         for connection in annoton.connections.gene_connections:
             if connection.relation in ["has_direct_input", "has input"]:
                 model.add_connection(connection, annoton)
+                # Record annotation
                 global_connections_list.append(connection)
             elif connection.relation in ["has_regulation_target", "regulates_activity_of"]:
                 # source_id = annoton.individuals[connection.gp_a]
@@ -108,6 +111,7 @@ def generate_model(args):
                         model.writer.emit(source_id, property_id, target_id)
                         # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
                         model.writer.emit_axiom(source_id, property_id, target_id)
+                        # Record mf_annotation
                 global_connections_list.append(connection)
 
     # Now see if the with connections can fill anything in
@@ -115,8 +119,9 @@ def generate_model(args):
         for connection in annoton.connections.gene_connections:
             if connection.relation in ["with_support_from"] and not global_connections_list.contains(connection):
                 model.add_connection(connection, annoton)
+                # Record annotation
 
-    with open(model.modeltitle + ".ttl", 'wb') as f:
+    with open(model.filepath, 'wb') as f:
         model.writer.writer.serialize(destination=f)
 
     return model
