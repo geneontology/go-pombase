@@ -40,25 +40,31 @@ class GOTermAnalyzer():
         return subont.parents(go_term, relations=["subClassOf","BFO:0000050"])
 
     def is_biological_process(self, go_term):
-        # ancestors = onto.ancestors(go_term)
+        bp_root = "GO:0008150"
+        if go_term == bp_root:
+            return True
         ancestors = self.get_ancestors(go_term)
-        if "GO:0008150" in ancestors:
+        if bp_root in ancestors:
             return True
         else:
             return False
 
     def is_molecular_function(self, go_term):
-        # ancestors = onto.ancestors(go_term)
+        mf_root = "GO:0003674"
+        if go_term == mf_root:
+            return True
         ancestors = self.get_ancestors(go_term)
-        if "GO:0003674" in ancestors:
+        if mf_root in ancestors:
             return True
         else:
             return False
 
     def is_cellular_component(self, go_term):
-        # ancestors = onto.ancestors(go_term)
+        cc_root = "GO:0005575"
+        if go_term == cc_root:
+            return True
         ancestors = self.get_ancestors(go_term)
-        if "GO:0005575" in ancestors:
+        if cc_root in ancestors:
             return True
         else:
             return False

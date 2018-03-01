@@ -8,6 +8,16 @@ from pombase_golr_query import AnnotationDataExtracter
 
 
 class GafAnnotationSet():
+    acceptable_evidence_codes = [
+        "EXP",
+        "IDA",
+        "IPI",
+        "IMP",
+        "IGI",
+        "IEP",
+        "ND"
+    ]
+
     def __init__(self, gaf_list):
         self.gafs = gaf_list
 
@@ -22,7 +32,8 @@ class GafAnnotationSet():
         if gafs is None:
             gafs = self.gafs
         for a in gafs:
-            if a[thing_key]["id"] == thing_id:
+            # if a[thing_key]["id"] == thing_id:
+            if a[thing_key]["id"] == thing_id and a["evidence"]["type"] in GafAnnotationSet.acceptable_evidence_codes:
                 annots.append(a)
         return annots
 
@@ -71,7 +82,7 @@ def genes_and_annots_for_bp(bp_term, filename, json_file=None):
         #     if len(cc_annots) > 0:
         #         gene_info[g]["cellular_component"] = cc_annots[0] # 2b
             all_cc_annotations = extracter.cc_annotations(gene_annots)
-            if len(all_cc_annotations) == 1:
+            if all_cc_annotations and len(all_cc_annotations) == 1:
                 gene_info[g]["cellular_component"] = all_cc_annotations
         gene_info[g]["connections"] = extracter.get_gene_connections(mf_annots, bp_term, tad)
 
