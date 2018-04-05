@@ -1,4 +1,5 @@
-from generate_rdf import GoCamModel, Annoton
+# from generate_rdf import GoCamModel, Annoton
+from gocamgen.gocamgen import GoCamModel, Annoton
 from gaf_query import genes_and_annots_for_bp
 from pombase_golr_query import GeneConnectionSet
 from rdflib.term import URIRef

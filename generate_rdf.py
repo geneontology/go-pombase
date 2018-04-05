@@ -151,10 +151,7 @@ class GoCamModel():
                     source_id = self.declare_individual(gene_connection.object_id)
                     source_annoton.individuals[gene_connection.object_id] = source_id
                     break
-                # for t in self.writer.writer.graph.triples((u,ENABLED_BY,None)):
 
-                # if t[1] == OCCURS_IN:
-                #     print(gene_connection.object_id + " OCCURS_IN " + str(t[2]))
         if source_id is None:
             try:
                 source_id = source_annoton.individuals[gene_connection.object_id]
@@ -351,10 +348,7 @@ class AnnotonCamRdfTransform(CamRdfTransform):
             for w in evidence['with_support_from']:
                 self.emit(ev_id, self.uri(evt.evidence_with_support_from), self.uri(w))
         for ref in evidence['has_supporting_reference']:
-            # o = self.uri(ref)
             o = Literal(ref) # Needs to go into Noctua like 'PMID:####' rather than full URL
-            # if ref == expand_uri(ref):
-            #     o = Literal(ref)
             self.emit(ev_id, HAS_SUPPORTING_REFERENCE, o)
         if 'with_support_from' in evidence:
             for ref in evidence['with_support_from']:
