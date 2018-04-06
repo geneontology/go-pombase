@@ -97,9 +97,17 @@ def generate_model(args):
                 model.add_connection(connection, annoton)
                 # Record annotation
                 global_connections_list.append(connection)
-            elif connection.relation in ["has_regulation_target", "regulates_activity_of"]:
+            elif connection.relation in ["has_regulation_target", "regulates_activity_of", "directly_positively_regulates", "directly_negatively_regulates"]:
                 # source_id = annoton.individuals[connection.gp_a]
-                source_id = annoton.individuals[connection.object_id]
+                try:
+                    source_id = annoton.individuals[connection.object_id]
+                except KeyError:
+                    print("Say hey")
+                    # New activity to declare for regulating annoton - also setup enabled_by triple and set source_id from MF
+                    source_id = model.declare_individual(connection.object_id)
+                    model.writer.emit(source_id, ENABLED_BY, annoton.individuals[connection.gp_a])
+                    model.add_axiom((source_id, ENABLED_BY, annoton.individuals[connection.gp_a]))
+                    annoton.individuals[connection.object_id] = source_id
                 # Probably need to switch source to be object (GO MF) of connection
                 property_id = URIRef(expand_uri(model.connection_relations[connection.relation]))
                 # find annoton(s) of regulation target gene product
@@ -107,7 +115,8 @@ def generate_model(args):
                 for t_annoton in target_annotons:
                     mf_annotation = t_annoton.get_aspect_object(gene_info[connection.gp_b], "molecular_function")
                     if mf_annotation is not None:
-                        target_id = global_individuals_list[mf_annotation["object"]["id"]]
+                        # target_id = global_individuals_list[mf_annotation["object"]["id"]]
+                        target_id = t_annoton.individuals[mf_annotation["object"]["id"]]
                         # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
                         model.writer.emit(source_id, property_id, target_id)
                         # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)

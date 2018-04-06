@@ -8,7 +8,11 @@ from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnaly
 import json
 
 mf_part_of_relations = ['part_of']
-mf_gene_relations =['has input','has_direct_input','has_regulation_target','regulates activity of']
+regulation_relations = ['has_regulation_target',
+                    'regulates activity of','directly_positively_regulates',
+                    'directly_negatively_regulates']
+input_relations = ['has input','has_direct_input']
+# mf_gene_relations = regulation_relations + input_relations
 cc_relations = ['occurs in','occurs at']
 
 ontology = OntologyFactory().create("go")
@@ -135,8 +139,12 @@ def query_for_annots(subject_id=None, object_id=None):
     return a
 
 class AnnotationDataExtracter():
-    def __init__(self, term_analyzer):
+    def __init__(self, term_analyzer, gene_relations=None):
         self.analyzer = term_analyzer # GOTermAnalyzer()
+        if gene_relations is None:
+            self.mf_gene_relations = regulation_relations + input_relations
+        else:
+            self.mf_gene_relations = gene_relations
 
     def get_annots_by_relationship(self, annotations, relations, ids=None):
         annots = []
@@ -178,7 +186,7 @@ class AnnotationDataExtracter():
                 return ext
 
             # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
-            ext = self.relevant_extension(extensions, mf_gene_relations, tad.bps[bp])
+            ext = self.relevant_extension(extensions, self.mf_gene_relations, tad.bps[bp])
             if ext is not None:
                 return ext
         if 'object_extensions' in annotation:
@@ -189,7 +197,7 @@ class AnnotationDataExtracter():
                 return ext
 
             # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
-            ext = self.relevant_object_extension(extensions, mf_gene_relations, tad.bps[bp])
+            ext = self.relevant_object_extension(extensions, self.mf_gene_relations, tad.bps[bp])
             if ext is not None:
                 return ext
 
@@ -200,7 +208,7 @@ class AnnotationDataExtracter():
             return mf_annots[0]
 
         # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
-        mf_annots = self.get_annots_by_relationship(annotations, mf_gene_relations, tad.bps[bp])
+        mf_annots = self.get_annots_by_relationship(annotations, self.mf_gene_relations, tad.bps[bp])
         if len(mf_annots) > 0:
             return mf_annots[0]
         
@@ -283,15 +291,15 @@ class AnnotationDataExtracter():
     def get_gene_connections(self, annotations, bp, tad):
         connections = GeneConnectionSet()
         # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
-        annots = self.get_annots_by_relationship(annotations, mf_gene_relations, tad.bps[bp])
+        annots = self.get_annots_by_relationship(annotations, self.mf_gene_relations, tad.bps[bp])
         for annot in annots:
             connected_genes = self.access_extensions(annot, self.get_gene_connection)
             for gene_list in connected_genes:
                 for gene in gene_list:
                     connection = None
-                    if gene[1] in ["has_regulation_target","regulates activity of"]:
+                    if gene[1] in regulation_relations:
                         connection = GeneConnection(annot["subject"]["id"], gene[0], annot["object"]["id"], gene[1], annot)
-                    elif gene[1] in ["has input","has_direct_input"] and annot["subject"]["id"] != gene[0]:
+                    elif gene[1] in input_relations and annot["subject"]["id"] != gene[0]:
                         connection = GeneConnection(annot["subject"]["id"], gene[0], annot["object"]["id"], gene[1], annot)
                     # connection = (annot["subject"]["id"],gene[0])
                     if connection and gene[0] in tad.bps[bp] and not connections.contains(connection):
@@ -303,11 +311,11 @@ class AnnotationDataExtracter():
         connections = []
         if "relationship" in ext:
             for rel in ext["relationship"]["relation"]:
-                if rel["label"] in mf_gene_relations:
+                if rel["label"] in self.mf_gene_relations:
                     connections.append([ext["relationship"]["id"], rel["label"]])
         elif "intersection_of" in ext:
             for rel in ext["intersection_of"]:
-                if rel["property"] in mf_gene_relations:
+                if rel["property"] in self.mf_gene_relations:
                     connections.append([rel["filler"], rel["property"]])
         if len(connections) > 0:
             return connections

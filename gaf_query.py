@@ -1,7 +1,7 @@
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 from ontobio.io.gafparser import GafParser
-from ontobio.sparql.sparql_ontology import EagerRemoteSparqlOntology
+from ontobio.sparql.sparql_ontology import EagerRemoteSparqlOntology, LazyRemoteSparqlOntology
 from ontobio.ontol import Ontology
 from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer, ProgressTracker
 from pombase_golr_query import AnnotationDataExtracter
