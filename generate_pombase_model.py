@@ -1,6 +1,6 @@
 # from generate_rdf import GoCamModel, Annoton
 from gocamgen.gocamgen import GoCamModel, Annoton
-from gaf_query import genes_and_annots_for_bp
+from gaf_query import genes_and_annots_for_bp, NoCacheEagerRemoteSparqlOntology
 from pombase_golr_query import GeneConnectionSet
 from rdflib.term import URIRef
 from ontobio.vocabulary.relations import OboRO
@@ -30,9 +30,21 @@ def main():
 def generate_model(args):
 
     bp = args.bp_term
+    go = NoCacheEagerRemoteSparqlOntology("go")
+    if not go.has_node(bp):
+        raise "Invalid BP term {}".format(bp)
     gene_info = genes_and_annots_for_bp(bp, args.gaf_source, json_file=args.tad_json)
 
-    model = GoCamModel(args.filename)
+    model_title = "PomBase - " + bp + " - " + go.label(bp)
+    if args.filename:
+        filename = args.filename
+    else:
+        # filename = model_title.replace(" - ", "_").replace(":", "_").replace(" ", "_")
+        filename = model_title
+        for unwanted_char in [" - ", ":", " ", "/"]:
+            filename = filename.replace(unwanted_char, "_")
+
+    model = GoCamModel(model_title)
     model.writer.bp_id = model.declare_individual(bp)
 
     annotons = []
@@ -131,8 +143,7 @@ def generate_model(args):
                 model.add_connection(connection, annoton)
                 # Record annotation
 
-    with open(model.filepath, 'wb') as f:
-        model.writer.writer.serialize(destination=f)
+    model.write(filename)
 
     return model
 
