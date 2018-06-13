@@ -25,20 +25,19 @@ parser.add_argument('-j', "--tad_json", type=str, required=False,
 
 def main():
     args = parser.parse_args()
-    generate_model(args)
+    generate_model(args.bp_term, args.gaf_source, args.filename, args.tad_json)
 
-def generate_model(args):
+def generate_model(bp_term, gaf_source, filename=None, tad_json=None):
 
-    bp = args.bp_term
+    bp = bp_term
     go = NoCacheEagerRemoteSparqlOntology("go")
     if not go.has_node(bp):
         raise "Invalid BP term {}".format(bp)
-    gene_info = genes_and_annots_for_bp(bp, args.gaf_source, json_file=args.tad_json)
+    gene_info = genes_and_annots_for_bp(bp, gaf_source, json_file=tad_json)
+    # chosen_annots = get_associations_chosen_in_previous_line(params)
 
     model_title = "PomBase - " + bp + " - " + go.label(bp)
-    if args.filename:
-        filename = args.filename
-    else:
+    if filename is None:
         # filename = model_title.replace(" - ", "_").replace(":", "_").replace(" ", "_")
         filename = model_title
         for unwanted_char in [" - ", ":", " ", "/"]:
