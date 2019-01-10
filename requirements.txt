@@ -11,8 +11,8 @@ isodate==0.6.0
 jsobject==0.10.2
 marshmallow==3.0.0b3
 networkx==1.11
-numpy==1.14.2
-ontobio==0.2.37
+numpy==1.15.4
+ontobio==1.1.3
 pandas==0.22.0
 pathtools==0.1.2
 pluggy==0.6.0
