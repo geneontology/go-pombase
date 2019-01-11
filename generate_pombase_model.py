@@ -13,11 +13,27 @@ ENABLED_BY = URIRef(expand_uri(ro.enabled_by))
 PART_OF = URIRef(expand_uri(ro.part_of))
 OCCURS_IN = URIRef(expand_uri(ro.occurs_in))
 
+class PomBaseAnnoton(Annoton):
+    def __init__(self, gene_info, subject_id):
+        self.enabled_by = subject_id
+        self.molecular_function = self.get_aspect_object(gene_info, "molecular_function")
+        self.cellular_component = self.get_aspect_object(gene_info, "cellular_component")
+        self.biological_process = self.get_aspect_object(gene_info, "bp")
+        self.connections = gene_info["connections"]
+        self.individuals = {}
+
+    #TODO: Should be replaced with gene_info.get(key)
+    def get_aspect_object(self, gene_info, aspect):
+        if aspect in gene_info:
+            return gene_info[aspect]
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-t', "--bp_term", type=str, required=True,
                     help="Biological process GO term that GOCAM should model")
 parser.add_argument('-f', "--filename", type=str, required=False,
                     help="Destination filename - will end in '.ttl'")
+parser.add_argument('-d', "--directory", type=str, required=False,
+                    help="Destination directory - in this case titles will be auto-generated")
 parser.add_argument('-g', "--gaf_source", type=str, required=True,
                     help="filename of GAF file to use as annotation source")
 parser.add_argument('-j', "--tad_json", type=str, required=False,
@@ -25,9 +41,9 @@ parser.add_argument('-j', "--tad_json", type=str, required=False,
 
 def main():
     args = parser.parse_args()
-    generate_model(args.bp_term, args.gaf_source, args.filename, args.tad_json)
+    generate_model(args.bp_term, args.gaf_source, args.filename, args.tad_json, args.directory)
 
-def generate_model(bp_term, gaf_source, filename=None, tad_json=None):
+def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=None):
 
     bp = bp_term
     go = NoCacheEagerRemoteSparqlOntology("go")
@@ -37,7 +53,7 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None):
     # chosen_annots = get_associations_chosen_in_previous_line(params)
 
     model_title = "PomBase - " + bp + " - " + go.label(bp)
-    if filename is None:
+    if filename is None or directory is not None:
         # filename = model_title.replace(" - ", "_").replace(":", "_").replace(" ", "_")
         filename = model_title
         for unwanted_char in [" - ", ":", " ", "/"]:
@@ -48,7 +64,7 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None):
 
     annotons = []
     for gene in gene_info:
-        annoton = Annoton(gene_info[gene], gene)
+        annoton = PomBaseAnnoton(gene_info[gene], gene)
         if annoton.molecular_function is not None:
             annotons.append(annoton)
 
@@ -104,11 +120,13 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None):
     global_connections_list = GeneConnectionSet()   # Tracking what connections have been added so far
     for annoton in annotons:
         for connection in annoton.connections.gene_connections:
-            if connection.relation in ["has_direct_input", "has input"]:
+            if connection.relation in ["has input"]:
                 model.add_connection(connection, annoton)
                 # Record annotation
                 global_connections_list.append(connection)
-            elif connection.relation in ["has_regulation_target", "regulates_activity_of", "directly_positively_regulates", "directly_negatively_regulates"]:
+            elif connection.relation in ["has_regulation_target", "regulates_activity_of", "directly_positively_regulates", "directly_negatively_regulates", "has_direct_input"]:
+                if connection.relation == "has_direct_input":
+                    connection.relation = "directly_regulates"
                 # source_id = annoton.individuals[connection.gp_a]
                 try:
                     source_id = annoton.individuals[connection.object_id]
@@ -142,6 +160,8 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None):
                 model.add_connection(connection, annoton)
                 # Record annotation
 
+    if directory is not None:
+        filename = directory + filename
     model.write(filename)
 
     return model

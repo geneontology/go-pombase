@@ -7,6 +7,7 @@ import json
 
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
+from gaf_annotation_set import GafAnnotationSet
 
 # logging.basicConfig(level="DEBUG")
 
@@ -98,8 +99,11 @@ class TermAnnotationDictionary():
                 print("File '" + json_file + "' used to load gene-to-BP term dictionary - " + str(len(self.bps)) + " keys loaded")
         else:
             progress = ProgressTracker(len(annotation_set.association_map), "initializing gene-to-BP term dictionary")
+            # progress = ProgressTracker(len(annotation_set), "initializing gene-to-BP term dictionary")
             ### subject_id = PomBase:SP######.## identifier - e.g. "PomBase:SPBP19A11.06"
+            # for assoc in annotation_set:
             for subject_id in annotation_set.association_map:
+                # subject_id = assoc["subject"]["id"]
                 objects_for_subject = annotation_set.objects_for_subject(subject_id)
                 for object_id in objects_for_subject:
                     if self.analyzer.is_biological_process(object_id):

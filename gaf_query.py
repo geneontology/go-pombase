@@ -5,40 +5,7 @@ from ontobio.sparql.sparql_ontology import EagerRemoteSparqlOntology, LazyRemote
 from ontobio.ontol import Ontology
 from pombase_direct_bp_annots_query import TermAnnotationDictionary, GOTermAnalyzer, ProgressTracker
 from pombase_golr_query import AnnotationDataExtracter
-
-
-class GafAnnotationSet():
-    acceptable_evidence_codes = [
-        "EXP",
-        "IDA",
-        "IPI",
-        "IMP",
-        "IGI",
-        "IEP",
-        "ND"
-    ]
-
-    def __init__(self, gaf_list):
-        self.gafs = gaf_list
-
-    def annotations_for_subject(self, subject_id, gafs=None):
-        return self.annotations_for_thing("subject", subject_id, gafs)
-
-    def annotations_for_object(self, object_id, gafs=None):
-        return self.annotations_for_thing("object", object_id, gafs)
-
-    def annotations_for_thing(self, thing_key, thing_id, gafs=None):
-        annots = []
-        if gafs is None:
-            gafs = self.gafs
-        for a in gafs:
-            # if a[thing_key]["id"] == thing_id:
-            if a[thing_key]["id"] == thing_id and a["evidence"]["type"] in GafAnnotationSet.acceptable_evidence_codes:
-                annots.append(a)
-        return annots
-
-    def subject_object_query(self, subject_id, object_id, gafs=None):
-        return self.annotations_for_object(object_id, self.annotations_for_subject(subject_id))
+from gaf_annotation_set import GafAnnotationSet
 
 class NoCacheEagerRemoteSparqlOntology(EagerRemoteSparqlOntology):
     # Override cuz I don't care about text definitions or synonyms right now
@@ -49,12 +16,13 @@ def genes_and_annots_for_bp(bp_term, filename, json_file=None):
     # ontology = OntologyFactory().create("go")
     ontology = NoCacheEagerRemoteSparqlOntology("go")
     afactory = AssociationSetFactory()
-    a_set = afactory.create(ontology, file=filename, fmt="gaf")
+    # a_set = afactory.create(ontology, file=filename, fmt="gaf")
 
-    gafs = GafParser().parse(filename, skipheader=True)
-    gas = GafAnnotationSet(gafs)
+    # gafs = GafParser().parse(filename, skipheader=True)
+    gas = GafAnnotationSet(filename, ontology, filter_evidence=True)
+    gas.filter_evidence()
 
-    tad = TermAnnotationDictionary(ontology, a_set, json_file)
+    tad = TermAnnotationDictionary(ontology, gas.association_set, json_file)
     analyzer = GOTermAnalyzer(ontology)
     extracter = AnnotationDataExtracter(analyzer)
     
