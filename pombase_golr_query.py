@@ -17,7 +17,6 @@ cc_relations = ['occurs in','occurs at']
 
 ontology = OntologyFactory().create("go")
 afactory = AssociationSetFactory()
-a_set = afactory.create(ontology, file="gene_association.pombase", fmt="gaf") # Labels for debugging
 
 class ExtensionGolrFields(GolrFields):
     ANNOTATION_EXTENSION_JSON="annotation_extension_json"
@@ -120,7 +119,9 @@ class GeneConnection():
         else:
             return False
 
-    def print_connection(self):
+    def print_connection(self, a_set):
+        # Need a better way to pass in GP info to get labels
+        # a_set = afactory.create(ontology, subject_category='gene', object_category='function')  # Labels for debugging
         return self.gp_a + " (" + a_set.label(self.gp_a) + ") " + self.relation + " " + self.gp_b + " (" + a_set.label(self.gp_b) + ") through " + self.object_id + " (" + a_set.label(self.object_id) + ")"
 
 def get_specific_annots(annots, subject_id, object_id):
@@ -152,7 +153,7 @@ class AnnotationDataExtracter():
             relevant_ext = None
             if 'annotation_extensions' in annot:
                 relevant_ext = self.relevant_extension(annot["annotation_extensions"], relations, ids)
-            elif 'object_extensions' in annot:
+            elif 'object_extensions' in annot and len(annot["object_extensions"]) > 0:
                 relevant_ext = self.relevant_object_extension(annot["object_extensions"]["union_of"], relations, ids)
             if relevant_ext is not None:
                 annots.append(annot)
