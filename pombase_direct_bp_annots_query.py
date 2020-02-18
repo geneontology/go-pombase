@@ -146,6 +146,8 @@ class TermAnnotationDictionary():
             n = 30
         if m is None:
             m = 5
+        print("n =", n)
+        print("m =", m)
         candidate_bps = {}
         for bp in self.bps:
             if len(self.bps[bp]) >= m and len(self.bps[bp]) <= n and self.has_parent_with_direct_annotations_greater_than(bp, n):
@@ -306,7 +308,8 @@ def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None, gaf_file=Non
     # onto, aset = setup_pombase()
     ontology = OntologyFactory().create("go")
     afactory = AssociationSetFactory()
-    association_set = afactory.create(ontology, "gene", "function", taxon=POMBASE)
+    # association_set = afactory.create(ontology, "gene", "function", taxon=POMBASE)
+    association_set = afactory.create(ontology, "gene", "function", file=gaf_file)
     tad = TermAnnotationDictionary(ontology, association_set)
     tad.print_results(outfile)
     print("Initial BP count: " + str(len(tad.bps)))
@@ -337,6 +340,7 @@ def main():
                         help="File name of BP terms that did not cluster (singletons)")
     parser.add_argument('-n', "--n_value", type=str, required=False,
                         help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
+    # TODO: Make sure i'm excluding descendants of picked terms
     parser.add_argument('-m', "--m_value", type=str, required=False,
                         help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between the a pair is greater than or equal to min(m, number of genes in X, number of genes in Y)")
     parser.add_argument('-g', "--gaf_source", type=str, required=True,
@@ -356,7 +360,7 @@ def main():
         print("JSON created")
     else:
         print("Getting your lists for you...")
-        do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile)
+        do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile, gaf_file=args.gaf_source)
 
 if __name__ == "__main__":
     main()
