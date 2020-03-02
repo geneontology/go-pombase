@@ -5,6 +5,7 @@ import math
 import sys
 import json
 
+from statistics import mean
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 from gaf_annotation_set import GafAnnotationSet
@@ -32,13 +33,15 @@ class GOTermAnalyzer():
         all_ancestors = self.onto.ancestors(go_term)
         all_ancestors.append(go_term)
         subont = self.onto.subontology(all_ancestors)
-        return subont.ancestors(go_term, relations=["subClassOf","BFO:0000050"])
+        # return subont.ancestors(go_term, relations=["subClassOf","BFO:0000050"])
+        return subont.ancestors(go_term, relations=["subClassOf"])
 
     def get_parents(self, go_term):
         all_parents = self.onto.parents(go_term)
         all_parents.append(go_term)
         subont = self.onto.subontology(all_parents)
-        return subont.parents(go_term, relations=["subClassOf","BFO:0000050"])
+        # return subont.parents(go_term, relations=["subClassOf","BFO:0000050"])
+        return subont.parents(go_term, relations=["subClassOf"])
 
     def is_biological_process(self, go_term):
         bp_root = "GO:0008150"
@@ -152,6 +155,10 @@ class TermAnnotationDictionary():
         for bp in self.bps:
             if len(self.bps[bp]) >= m and len(self.bps[bp]) <= n and self.has_parent_with_direct_annotations_greater_than(bp, n):
                 candidate_bps[bp] = self.bps[bp]
+        candidate_bp_keys = list(candidate_bps.keys())
+        for bp in candidate_bp_keys:
+            if len(set(self.analyzer.get_ancestors(bp)) & set(candidate_bp_keys)) > 0:
+                del candidate_bps[bp]
         return candidate_bps
 
     def term_subset(self, term_list):
@@ -216,7 +223,8 @@ class BPTermSimilarityGrouper():
         for bpx in bp_dict:
             for bpy in bp_dict:
                 if bpx != bpy and (bpx, bpy) not in set_list:
-                    if len(set(bp_dict[bpx]) & set(bp_dict[bpy])) >= min(m, len(bp_dict[bpx]), len(bp_dict[bpy])):
+                    common_genes_between_x_and_y = set(bp_dict[bpx]) & set(bp_dict[bpy])
+                    if len(common_genes_between_x_and_y) >= min(m, len(bp_dict[bpx]), len(bp_dict[bpy])):
                         set_list.append((bpx, bpy))
             progress.print_progress()
         return set_list
@@ -265,23 +273,43 @@ class BPTermSimilarityGrouper():
                 unpaired_bp_list.append(bp)
         return unpaired_bp_list
 
-    def print_clusters(self, clusters, c_out=None):
+    @staticmethod
+    def format_cluster_header(cluster_counter, cluster):
+        header_print_fmt = "---- Cluster {cluster_counter}, Total: {cluster_length} ----"
+        return header_print_fmt.format(cluster_counter=str(cluster_counter), cluster_length=str(len(cluster)))
+
+    def format_cluster_line(self, term, bp_genes):
+        line_print_fmt = "{term} - {term_label} - {gene_count}"
+        return line_print_fmt.format(term=term, term_label=self.analyzer.label(term), gene_count=len(bp_genes[term]))
+
+    def print_clusters(self, clusters, bp_list, c_out=None):
         cluster_counter = 1
         if c_out is None:
             for c in clusters:
-                print("---- Cluster " + str(cluster_counter) + ", Total: " + str(len(c)) + " ----")
+                print(self.format_cluster_header(cluster_counter, c))
                 for t in c:
-                    print(t + " - " + self.analyzer.label(t))
+                    print(self.format_cluster_line(t, bp_list))
                 cluster_counter += 1
         else:
             with open(c_out, 'w') as f:
                 for c in clusters:
-                    f.write("---- Cluster " + str(cluster_counter) + ", Total: " + str(len(c)) + " ----\n")
+                    f.write(self.format_cluster_header(cluster_counter, c) + "\n")
                     for t in c:
-                        f.write(t + " - " + self.analyzer.label(t) + "\n")
+                        f.write(self.format_cluster_line(t, bp_list) + "\n")
                     cluster_counter += 1
 
-class ProgressTracker():
+    def append_singletons_to_outfile(self, singletons, cluster_outfile=None):
+        if cluster_outfile is None:
+            return
+        with open(cluster_outfile, "a") as c_out:
+            c_out.write("---- Singleton Clusters ----\n")
+            # TODO: sort keys by len(singletons[t])
+            singleton_terms = sorted(singletons.keys(), key=lambda x: len(singletons[x]), reverse=True)
+            for t in singleton_terms:
+                c_out.write(self.format_cluster_line(t, singletons) + "\n")
+
+
+class ProgressTracker:
     def __init__(self, total, title=None):
         self.start = datetime.datetime.now()
         self.progress_counter = 0
@@ -304,13 +332,21 @@ class ProgressTracker():
     def execution_time(self):
         return datetime.datetime.now() - self.start
 
-def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None, gaf_file=None):
+def create_association_set(filename, ontology):
+    gas = GafAnnotationSet(filename, ontology=ontology, filter_evidence=True)
+    a_set = gas.association_set
+    return a_set
+
+def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None, gaf_file=None, reuse_tad_json=None):
     # onto, aset = setup_pombase()
     ontology = OntologyFactory().create("go")
-    afactory = AssociationSetFactory()
+    # afactory = AssociationSetFactory()
+    # TODO: filter out non-exp
     # association_set = afactory.create(ontology, "gene", "function", taxon=POMBASE)
-    association_set = afactory.create(ontology, "gene", "function", file=gaf_file)
-    tad = TermAnnotationDictionary(ontology, association_set)
+    # association_set = afactory.create(ontology, "gene", "function", file=gaf_file)
+    association_set = create_association_set(gaf_file, ontology)
+    print("aset size:", len(association_set.association_map))
+    tad = TermAnnotationDictionary(ontology, association_set, json_file=reuse_tad_json)
     tad.print_results(outfile)
     print("Initial BP count: " + str(len(tad.bps)))
     new_bps = tad.select_candidate_bps(n, m)
@@ -319,14 +355,23 @@ def do_everything(n=30, m=10, outfile=None, c_out=None, s_out=None, gaf_file=Non
     p_list = grouper.pair_bp_sets_with_similar_genes(new_bps, m)
     print("BP pair count: " + str(len(p_list)))
     c_list = grouper.cluster_pair_list(p_list)
+    distinct_paired_bp_terms = grouper.uniqueify_tuple_terms(p_list)
+    print("Paired BP (distinct) count:", len(distinct_paired_bp_terms))
+
     unpaired_bps = grouper.find_unpaired_bps(p_list)
-    tad.print_results(s_out, tad.term_subset(unpaired_bps))
-    grouper.print_clusters(c_list, c_out)
+    unpaired_bps_gene_lists = tad.term_subset(unpaired_bps)
+    tad.print_results(s_out, unpaired_bps_gene_lists)
+    print("Unpaired BP count:", len(unpaired_bps_gene_lists))
+    print("Total BP count:", len(distinct_paired_bp_terms) + len(unpaired_bps_gene_lists))
+    print("Cluster count:", len(c_list))
+    if len(c_list) > 0:
+        print("Avg. genes/cluster:", mean([len(c) for c in c_list]))
+    grouper.print_clusters(c_list, new_bps, c_out)
+    grouper.append_singletons_to_outfile(unpaired_bps_gene_lists, c_out)
 
 def process_tad_and_dump_out(filename, json_outfile):
     ontology = OntologyFactory().create("go")
-    afactory = AssociationSetFactory()
-    a_set = afactory.create(ontology, file=filename, fmt="gaf")
+    a_set = create_association_set(filename, ontology)
     tad = TermAnnotationDictionary(ontology, a_set)
     tad.dump_to_json(json_outfile)
 
@@ -342,11 +387,13 @@ def main():
                         help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
     # TODO: Make sure i'm excluding descendants of picked terms
     parser.add_argument('-m', "--m_value", type=str, required=False,
-                        help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between the a pair is greater than or equal to min(m, number of genes in X, number of genes in Y)")
+                        help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between them is greater than or equal to min(m, number of genes in X, number of genes in Y)")
     parser.add_argument('-g', "--gaf_source", type=str, required=True,
                         help="filename of GAF file to use as annotation source")
     parser.add_argument('-j', "--dump_tad_json", type=str, required=False,
                         help="Save TermAnnotationDictionary values to json file for reuse")
+    parser.add_argument('-r', "--reuse_tad_json", type=str, required=False,
+                        help="Reuse TermAnnotationDictionary json file")
 
     args = parser.parse_args()
     if args.n_value is not None:
@@ -360,7 +407,7 @@ def main():
         print("JSON created")
     else:
         print("Getting your lists for you...")
-        do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile, gaf_file=args.gaf_source)
+        do_everything(args.n_value, args.m_value, args.term_gene_count_outfile, args.clusters_outfile, args.unclustered_outfile, gaf_file=args.gaf_source, reuse_tad_json=args.reuse_tad_json)
 
 if __name__ == "__main__":
     main()
