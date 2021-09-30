@@ -12,18 +12,18 @@ class NoCacheEagerRemoteSparqlOntology(EagerRemoteSparqlOntology):
     def subontology(self, nodes=None, **args):
         return Ontology.subontology(self, nodes, **args)
 
-def genes_and_annots_for_bp(bp_term, filename, json_file=None):
-    # ontology = OntologyFactory().create("go")
-    ontology = NoCacheEagerRemoteSparqlOntology("go")
-    afactory = AssociationSetFactory()
+def genes_and_annots_for_bp(bp_term, filename, json_file=None, go_ontology=None):
+    if go_ontology is None:
+        go_ontology = NoCacheEagerRemoteSparqlOntology("go")
+    # afactory = AssociationSetFactory()
     # a_set = afactory.create(ontology, file=filename, fmt="gaf")
 
     # gafs = GafParser().parse(filename, skipheader=True)
-    gas = GafAnnotationSet(filename, ontology, filter_evidence=True)
+    gas = GafAnnotationSet(filename, go_ontology, filter_evidence=True)
     gas.filter_evidence()
 
-    tad = TermAnnotationDictionary(ontology, gas.association_set, json_file)
-    analyzer = GOTermAnalyzer(ontology)
+    tad = TermAnnotationDictionary(go_ontology, gas.association_set, json_file)
+    analyzer = GOTermAnalyzer(go_ontology)
     extracter = AnnotationDataExtracter(analyzer)
     
     gene_info = {}
@@ -33,7 +33,7 @@ def genes_and_annots_for_bp(bp_term, filename, json_file=None):
         gene_annots = gas.annotations_for_subject(g)
         mf_annots = []
         for annot in gene_annots:
-            if analyzer.is_molecular_function(annot["object"]["id"]):
+            if analyzer.is_molecular_function(str(annot.object.id)):
                 mf_annots.append(annot)
         gene_info[g] = {}
         gene_info[g]["bp"] = bp_term

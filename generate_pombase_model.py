@@ -1,6 +1,8 @@
 # from generate_rdf import GoCamModel, Annoton
-from gocamgen.gocamgen import GoCamModel, Annoton
+# from gocamgen.gocamgen import GoCamModel, Annoton, GoCamEvidence
+from ontobio.rdfgen.gocamgen.gocamgen import GoCamModel, Annoton, GoCamEvidence
 from gaf_query import genes_and_annots_for_bp, NoCacheEagerRemoteSparqlOntology
+from ontobio.ontol_factory import OntologyFactory
 from pombase_golr_query import GeneConnectionSet
 from rdflib.term import URIRef
 from ontobio.vocabulary.relations import OboRO
@@ -36,23 +38,23 @@ parser.add_argument('-d', "--directory", type=str, required=False,
                     help="Destination directory - in this case titles will be auto-generated")
 parser.add_argument('-g', "--gaf_source", type=str, required=True,
                     help="filename of GAF file to use as annotation source")
+parser.add_argument('-o', "--go_ontology", type=str, required=False,
+                    help="filename of GO ontology")
 parser.add_argument('-j', "--tad_json", type=str, required=False,
                     help="Existing json data file to load into term-to-gene dictionary. Speeds up performance.")
 
-def main():
-    args = parser.parse_args()
-    generate_model(args.bp_term, args.gaf_source, args.filename, args.tad_json, args.directory)
 
-def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=None):
+def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=None, go_ontology=None):
 
     bp = bp_term
-    go = NoCacheEagerRemoteSparqlOntology("go")
-    if not go.has_node(bp):
+    if go_ontology is None:
+        go_ontology = NoCacheEagerRemoteSparqlOntology("go")
+    if not go_ontology.has_node(bp):
         raise "Invalid BP term {}".format(bp)
-    gene_info = genes_and_annots_for_bp(bp, gaf_source, json_file=tad_json)
+    gene_info = genes_and_annots_for_bp(bp, gaf_source, json_file=tad_json, go_ontology=go_ontology)
     # chosen_annots = get_associations_chosen_in_previous_line(params)
 
-    model_title = "PomBase - " + bp + " - " + go.label(bp)
+    model_title = "PomBase - " + bp + " - " + go_ontology.label(bp)
     if filename is None or directory is not None:
         # filename = model_title.replace(" - ", "_").replace(":", "_").replace(" ", "_")
         filename = model_title
@@ -78,7 +80,7 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=
 
         # writer.translate_annoton(annoton)
         sub = annoton.enabled_by
-        obj = annoton.molecular_function["object"]
+        obj = annoton.molecular_function.object
 
         # E.g. instance of gene product class. Keeping individuals at annoton level for our Pombase purposes.
         if sub not in annoton.individuals:
@@ -88,30 +90,38 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=
             enabler_id = annoton.individuals[sub]
 
         # E.g. instance of GO class
-        if obj["id"] not in annoton.individuals:
-            tgt_id = model.declare_individual(obj["id"])
-            annoton.individuals[obj["id"]] = tgt_id
+        object_id = str(obj.id)
+        if object_id not in annoton.individuals:
+            tgt_id = model.declare_individual(object_id)
+            annoton.individuals[object_id] = tgt_id
         else:
-            tgt_id = annoton.individuals[obj["id"]]
+            tgt_id = annoton.individuals[object_id]
 
         enabled_by_stmt = model.writer.emit(tgt_id, ENABLED_BY, enabler_id)
         part_of_stmt = model.writer.emit(tgt_id, PART_OF, model.writer.bp_id)
 
         axiom_id = model.add_axiom(enabled_by_stmt)
         association = annoton.molecular_function
-        model.add_evidence(axiom_id, association["evidence"]["type"], association["evidence"]["has_supporting_reference"])
+        references = [str(ref) for ref in association.evidence.has_supporting_reference]
+        evidence = GoCamEvidence(code=str(association.evidence.type), references=references)
+        model.add_evidence(axiom_id, evidence)
         # Record annotation
 
         if annoton.cellular_component is not None:
             for cellular_component in annoton.cellular_component:
-                cc_object_id = cellular_component["object"]["id"]
+                cc_object_id = str(cellular_component.object.id)
                 if cc_object_id not in annoton.individuals:
                     cc_id = model.declare_individual(cc_object_id)
                     annoton.individuals[cc_object_id] = cc_id
+                else:
+                    cc_id = annoton.individuals[cc_object_id]
                 occurs_in_stmt = model.writer.emit(tgt_id, OCCURS_IN, cc_id)
                 cc_axiom_id = model.add_axiom(occurs_in_stmt)
                 cc_association = cellular_component
-                model.add_evidence(cc_axiom_id, cc_association["evidence"]["type"], cc_association["evidence"]["has_supporting_reference"])
+                cc_refs = [str(ref) for ref in cc_association.evidence.has_supporting_reference]
+                cc_evidence = GoCamEvidence(code=str(cc_association.evidence.type),
+                                         references=cc_refs)
+                model.add_evidence(cc_axiom_id, cc_evidence)
                 # Record annotation
         
         global_individuals_list = {**global_individuals_list, **annoton.individuals}
@@ -145,7 +155,7 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=
                     mf_annotation = t_annoton.get_aspect_object(gene_info[connection.gp_b], "molecular_function")
                     if mf_annotation is not None:
                         # target_id = global_individuals_list[mf_annotation["object"]["id"]]
-                        target_id = t_annoton.individuals[mf_annotation["object"]["id"]]
+                        target_id = t_annoton.individuals[mf_annotation.object.id]
                         # Annotate source MF GO term NamedIndividual with relation code-target MF term URI
                         model.writer.emit(source_id, property_id, target_id)
                         # Add axiom (Source=MF term URI, Property=relation code, Target=MF term URI)
@@ -166,5 +176,12 @@ def generate_model(bp_term, gaf_source, filename=None, tad_json=None, directory=
 
     return model
 
+
 if __name__ == "__main__":
-    main()
+    args = parser.parse_args()
+
+    go_ontology = None
+    if args.go_ontology:
+        go_ontology = OntologyFactory().create(args.go_ontology)
+
+    generate_model(args.bp_term, args.gaf_source, args.filename, args.tad_json, args.directory, go_ontology=go_ontology)

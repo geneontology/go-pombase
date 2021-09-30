@@ -15,7 +15,7 @@ input_relations = ['has input','has_direct_input']
 # mf_gene_relations = regulation_relations + input_relations
 cc_relations = ['occurs in','occurs at']
 
-ontology = OntologyFactory().create("go")
+# ontology = OntologyFactory().create("go")
 afactory = AssociationSetFactory()
 
 class ExtensionGolrFields(GolrFields):
@@ -151,10 +151,8 @@ class AnnotationDataExtracter():
         annots = []
         for annot in annotations:
             relevant_ext = None
-            if 'annotation_extensions' in annot:
-                relevant_ext = self.relevant_extension(annot["annotation_extensions"], relations, ids)
-            elif 'object_extensions' in annot and len(annot["object_extensions"]) > 0:
-                relevant_ext = self.relevant_object_extension(annot["object_extensions"]["union_of"], relations, ids)
+            if annot.object_extensions:
+                relevant_ext = self.relevant_object_extension(annot.object_extensions, relations, ids)
             if relevant_ext is not None:
                 annots.append(annot)
         return annots
@@ -170,28 +168,16 @@ class AnnotationDataExtracter():
 
     def relevant_object_extension(self, exts, relations, ids=None):
         for ext in exts:
-            for rel in ext["intersection_of"]:
+            for rel in ext.elements:
                 if ids is None:
-                    if rel["property"] in relations:
+                    if str(rel.relation) in relations:
                         return ext
-                elif rel["property"] in relations and rel["filler"] in ids:
+                elif str(rel.relation) in relations and str(rel.term) in ids:
                     return ext
 
     def relevant_mf_extension(self, annotation, bp, tad):
-        extensions = None
-        if 'annotation_extensions' in annotation:
-            extensions = annotation["annotation_extensions"]
-            # 1a - extension having "part_of(bp)"
-            ext = self.relevant_extension(extensions, mf_part_of_relations, [bp])
-            if ext is not None:
-                return ext
-
-            # 1b - extension having "has input(other gene also under same bp)" or "has_regulation_target(same bp)"
-            ext = self.relevant_extension(extensions, self.mf_gene_relations, tad.bps[bp])
-            if ext is not None:
-                return ext
-        if 'object_extensions' in annotation:
-            extensions = annotation["object_extensions"]["union_of"]
+        if annotation.object_extensions:
+            extensions = annotation.object_extensions
             # 1a - extension having "part_of(bp)"
             ext = self.relevant_object_extension(extensions, mf_part_of_relations, [bp])
             if ext is not None:
@@ -254,11 +240,7 @@ class AnnotationDataExtracter():
 
     def access_extensions(self, annotation, check_func):
         return_values = []
-        extensions = []
-        if "annotation_extensions" in annotation:
-            extensions = annotation["annotation_extensions"]
-        elif "object_extensions" in annotation:
-            extensions = annotation["object_extensions"]["union_of"]
+        extensions = annotation.object_extensions
         for ext in extensions:
             result = check_func(ext)
             if type(result) is bool:
@@ -270,20 +252,20 @@ class AnnotationDataExtracter():
     def direct_cc_annotations(self, annotations):
         cc_annots = []
         for annot in annotations:
-            if self.analyzer.is_cellular_component(annot["object"]["id"]):
+            if self.analyzer.is_cellular_component(str(annot.object.id)):
                 cc_annots.append(annot)
         return cc_annots
 
     def get_with_gene_connections(self, annotations, bp, tad):
         connections = GeneConnectionSet()
         for annot in annotations:
-            # annotation of the gene product to the GO term “protein binding” 
-            if "evidence" in annot and "with_support_from" in annot["evidence"] and annot["object"]["id"] == "GO:0005515":
-                with_genes = annot["evidence"]["with_support_from"]
+            # annotation of the gene product to the GO term “protein binding”
+            if annot.evidence.with_support_from and str(annot.object.id) == "GO:0005515":
+                with_genes = annot.evidence.with_support_from[0].elements  # TODO: Assuming there were no "|" separators in with/from
                 for wg in with_genes:
                     connection = None
-                    if annot["subject"]["id"] != wg and wg in tad.bps[bp]:
-                        connection = GeneConnection(annot["subject"]["id"], wg, annot["object"]["id"], "with_support_from", annot)
+                    if str(annot.subject.id) != wg and wg in tad.bps[bp]:
+                        connection = GeneConnection(str(annot.subject.id), wg, str(annot.object.id), "with_support_from", annot)
                     if connection is not None and not connections.contains(connection):
                         connections.append(connection)
         return connections
