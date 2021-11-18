@@ -1,4 +1,5 @@
 import argparse
+import csv
 import datetime
 import logging
 import math
@@ -9,6 +10,25 @@ from statistics import mean
 from ontobio.assoc_factory import AssociationSetFactory
 from ontobio.ontol_factory import OntologyFactory
 from gaf_annotation_set import GafAnnotationSet
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-t', "--term_gene_count_outfile", type=str, required=False,
+                    help="File name of BP term listing count of gene sets")
+parser.add_argument('-c', "--clusters_outfile", type=str, required=False,
+                    help="File name of BP term clusters list")
+parser.add_argument('-s', "--unclustered_outfile", type=str, required=False,
+                    help="File name of BP terms that did not cluster (singletons)")
+parser.add_argument('-n', "--n_value", type=str, required=False,
+                    help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
+parser.add_argument('-m', "--m_value", type=str, required=False,
+                    help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between them is greater than or equal to min(m, number of genes in X, number of genes in Y)")
+parser.add_argument('-x', "--x_value", type=int)
+parser.add_argument('-g', "--gaf_source", type=str, required=True,
+                    help="filename of GAF file to use as annotation source")
+parser.add_argument('-j', "--dump_tad_json", type=str, required=False,
+                    help="Save TermAnnotationDictionary values to json file for reuse")
+parser.add_argument('-r', "--reuse_tad_json", type=str, required=False,
+                    help="Reuse TermAnnotationDictionary json file")
 
 # logging.basicConfig(level="DEBUG")
 
@@ -140,11 +160,16 @@ class TermAnnotationDictionary():
             print("Total BPs: " + str(len(bps)))
         else:
             with open(filepath, 'w') as f:
-                f.write("Total BPs: " + str(len(bps)) + "\n")
+                writer = csv.writer(f, delimiter="\t")
+                # f.write("Total BPs: " + str(len(bps)) + "\n")
                 for key in sorted(bps, key=lambda key: len(bps[key]), reverse=True):
-                    f.write(str(len(bps[key])) + " - " + key + " - " + self.annotation_set.label(key) + "\n")
+                    # f.write(str(len(bps[key])) + " - " + key + " - " + self.annotation_set.label(key) + "\n")
+                    bp_row = [len(bps[key]), key, self.annotation_set.label(key)]
+                    writer.writerow(bp_row)
+                total_row = ["Total BPs: {}".format(str(len(bps)))]
+                writer.writerow(total_row)
 
-    def has_parent_with_direct_annotations_greater_than(self, go_term, n=30):
+    def has_parent_with_gene_set_greater_than(self, go_term, n=30):
         for p in self.analyzer.get_parents(go_term):
             if p in self.bps and len(self.bps[p]) > n:
                 return True
@@ -167,7 +192,7 @@ class TermAnnotationDictionary():
                 # Filter out BP if geneset's too big (>x)
                 continue
             bp_children = self.analyzer.get_children(bp)
-            if (gene_set_size >= m and gene_set_size <= n and self.has_parent_with_direct_annotations_greater_than(bp, n))\
+            if (gene_set_size >= m and gene_set_size <= n and self.has_parent_with_gene_set_greater_than(bp, n))\
                     or (gene_set_size > n and len(bp_children) == 0):
                 candidate_bps[bp] = self.bps[bp]
         candidate_bp_keys = list(candidate_bps.keys())
@@ -381,9 +406,10 @@ def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, 
     association_set = create_association_set(gaf_file, ontology)
     print("aset size:", len(association_set.association_map))
     tad = TermAnnotationDictionary(ontology, association_set, json_file=reuse_tad_json)
-    tad.print_results(outfile)
+    # tad.print_results(outfile)
     print("Initial BP count: " + str(len(tad.bps)))
     new_bps = tad.select_candidate_bps(n, m, x)
+    tad.print_results(outfile, alt_bps=new_bps)
     print("Candidate BP count: " + str(len(new_bps)))
     grouper = BPTermSimilarityGrouper(tad)
     p_list = grouper.pair_bp_sets_with_similar_genes(new_bps, m)
@@ -409,26 +435,8 @@ def process_tad_and_dump_out(filename, json_outfile):
     tad = TermAnnotationDictionary(ontology, a_set)
     tad.dump_to_json(json_outfile)
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-t', "--term_gene_count_outfile", type=str, required=False,
-                        help="File name of BP term listing count of gene sets")
-    parser.add_argument('-c', "--clusters_outfile", type=str, required=False,
-                        help="File name of BP term clusters list")
-    parser.add_argument('-s', "--unclustered_outfile", type=str, required=False,
-                        help="File name of BP terms that did not cluster (singletons)")
-    parser.add_argument('-n', "--n_value", type=str, required=False,
-                        help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
-    parser.add_argument('-m', "--m_value", type=str, required=False,
-                        help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between them is greater than or equal to min(m, number of genes in X, number of genes in Y)")
-    parser.add_argument('-x', "--x_value", type=int)
-    parser.add_argument('-g', "--gaf_source", type=str, required=True,
-                        help="filename of GAF file to use as annotation source")
-    parser.add_argument('-j', "--dump_tad_json", type=str, required=False,
-                        help="Save TermAnnotationDictionary values to json file for reuse")
-    parser.add_argument('-r', "--reuse_tad_json", type=str, required=False,
-                        help="Reuse TermAnnotationDictionary json file")
 
+if __name__ == "__main__":
     args = parser.parse_args()
     if args.n_value is not None:
         args.n_value = int(args.n_value)
@@ -442,6 +450,3 @@ def main():
     else:
         print("Getting your lists for you...")
         do_everything(n=args.n_value, m=args.m_value, x=args.x_value, outfile=args.term_gene_count_outfile, c_out=args.clusters_outfile, s_out=args.unclustered_outfile, gaf_file=args.gaf_source, reuse_tad_json=args.reuse_tad_json)
-
-if __name__ == "__main__":
-    main()

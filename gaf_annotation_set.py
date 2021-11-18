@@ -15,7 +15,8 @@ class GafAnnotationSet():
         "IMP",
         "IGI",
         "IEP",
-        "ND"
+        "ND",
+        "IBD"
     ]
     acceptable_evidence_eco_codes = [ecomapping.coderef_to_ecoclass(ev) for ev in acceptable_evidence_codes]
 
