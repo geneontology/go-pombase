@@ -29,5 +29,19 @@ python3 pombase_direct_bp_annots_query.py -j 'json_outfile.json' -g 'gene_associ
 ```
 With -j specifying the JSON output path.
 
+## Generate BP cluster lists from 'candidate BP terms'
+Extract lists of BP terms that share commonly annotated genes
+```
+python3 pombase_direct_bp_annots_query.py -t candidate_bp_terms.txt -c term_clusters.txt -s unclustered_terms.tsv -g pombase.gaf
+```
+### Criteria for selecting candidate BP terms
+1. Term gene set size is less than or equal to `x`=60
+2. One of these is true:
+    1. Term gene set size between `m`=5 and `n`=30 AND the BP term has a parent with gene set size > `n`=30
+    2. Term gene set size > `n`=30 AND term has no child terms
+3. Term has no ancestor terms that also meet above criteria (selects for most generic term)
+
+Note that GO graph traversal here only follows "is_a" paths. Also, the gene set for each term contains genes both directly and indirectly annotated to that term.
+
 ## Dependencies
 Requires [ontobio](https://github.com/biolink/ontobio).
