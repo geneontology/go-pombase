@@ -29,10 +29,21 @@ parser.add_argument('-j', "--dump_tad_json", type=str, required=False,
                     help="Save TermAnnotationDictionary values to json file for reuse")
 parser.add_argument('-r', "--reuse_tad_json", type=str, required=False,
                     help="Reuse TermAnnotationDictionary json file")
+parser.add_argument('-p', "--part_of_closure", action='store_const', const=True,
+                    help="Ontology traversal includes part_of paths")
+parser.add_argument('-e', "--regulates_closure", action='store_const', const=True,
+                    help="Ontology traversal includes regulates paths")
 
 # logging.basicConfig(level="DEBUG")
 
 POMBASE = "NCBITaxon:4896"
+IS_A = "subClassOf"
+PART_OF = "BFO:0000050"
+REGULATES_RELATIONS = [
+    "RO:0002211",  # regulates
+    "RO:0002212",  # negatively regulates
+    "RO:0002213",  # positively regulates
+]
 
 def setup_pombase():
     ontology = OntologyFactory().create("go")
@@ -40,40 +51,43 @@ def setup_pombase():
     association_set = afactory.create(ontology, "gene", "function", taxon=POMBASE)
     return ontology, association_set
 
-# onto, aset = setup_pombase()
 
-class GOTermAnalyzer():
-    def __init__(self, onto):
-        # TODO: Make this not dependent on prequeried annotations
+class GOTermAnalyzer:
+    def __init__(self, onto, closure_relations=None):
         self.onto = onto
+        self.closure_relations = closure_relations
+        if closure_relations is None:
+            self.closure_relations = [IS_A]
 
-    def get_ancestors(self, go_term):
-        ### BFO:0000050 = part of
-        ### I assume "subClassOf" = is a?
+    def get_ancestors(self, go_term, relations=None):
         all_ancestors = self.onto.ancestors(go_term)
         all_ancestors.append(go_term)
         subont = self.onto.subontology(all_ancestors)
-        # return subont.ancestors(go_term, relations=["subClassOf","BFO:0000050"])
-        return subont.ancestors(go_term, relations=["subClassOf"])
+        if relations is None:
+            relations = self.closure_relations
+        return subont.ancestors(go_term, relations=relations)
 
-    def get_parents(self, go_term):
+    def get_parents(self, go_term, relations=None):
         all_parents = self.onto.parents(go_term)
         all_parents.append(go_term)
         subont = self.onto.subontology(all_parents)
-        # return subont.parents(go_term, relations=["subClassOf","BFO:0000050"])
-        return subont.parents(go_term, relations=["subClassOf"])
+        if relations is None:
+            relations = self.closure_relations
+        return subont.parents(go_term, relations=relations)
 
-    def get_children(self, go_term):
+    def get_children(self, go_term, relations=None):
         all_children = self.onto.children(go_term)
         all_children.append(go_term)
         subont = self.onto.subontology(all_children)
-        return subont.children(go_term, relations=["subClassOf"])
+        if relations is None:
+            relations = self.closure_relations
+        return subont.children(go_term, relations=relations)
 
     def is_biological_process(self, go_term):
         bp_root = "GO:0008150"
         if go_term == bp_root:
             return True
-        ancestors = self.get_ancestors(go_term)
+        ancestors = self.get_ancestors(go_term, relations=[IS_A])
         if bp_root in ancestors:
             return True
         else:
@@ -83,7 +97,7 @@ class GOTermAnalyzer():
         mf_root = "GO:0003674"
         if go_term == mf_root:
             return True
-        ancestors = self.get_ancestors(go_term)
+        ancestors = self.get_ancestors(go_term, relations=[IS_A])
         if mf_root in ancestors:
             return True
         else:
@@ -93,7 +107,7 @@ class GOTermAnalyzer():
         cc_root = "GO:0005575"
         if go_term == cc_root:
             return True
-        ancestors = self.get_ancestors(go_term)
+        ancestors = self.get_ancestors(go_term, relations=[IS_A])
         if cc_root in ancestors:
             return True
         else:
@@ -101,7 +115,6 @@ class GOTermAnalyzer():
 
     def get_ancestor_bps(self, mf_go_term):
         bp_ancestors = []
-        # for ancestor in onto.ancestors(mf_go_term):
         for ancestor in self.get_ancestors(mf_go_term):
             if self.is_biological_process(ancestor):
                 bp_ancestors.append(ancestor)
@@ -110,17 +123,26 @@ class GOTermAnalyzer():
     def label(self, subject_id):
         return self.onto.label(subject_id)
 
-class TermAnnotationDictionary():
 
-    def __init__(self, ontology, annotation_set, json_file=None):
-        self.bps = {}    ### Dictionary of PomBase gene ID's grouped by BP GO term
+class TermAnnotationDictionaryConfig:
+    def __init__(self, closure_relations=None):
+        self.closure_relations = closure_relations
+        if self.closure_relations is None:
+            self.closure_relations = [IS_A]
+        # TODO: Add ontology
+
+
+class TermAnnotationDictionary:
+    def __init__(self, ontology, annotation_set, json_file=None, config: TermAnnotationDictionaryConfig = None):
+        self.bps = {}  # Dictionary of PomBase gene ID's grouped by BP GO term
+        self.config = config
         self.ontology = ontology
         self.annotation_set = annotation_set
         self.candidate_bps = None
         self.pair_list = None
         self.cluster_list = None
         self.unpaired_bps = None
-        self.analyzer = GOTermAnalyzer(ontology)
+        self.analyzer = self.create_term_analyzer()
         self.grouper = BPTermSimilarityGrouper(self)
         if json_file is not None:
             with open(json_file, "r") as f:
@@ -145,6 +167,13 @@ class TermAnnotationDictionary():
                             else:
                                 self.bps[bp] = [subject_id]
                 progress.print_progress()
+
+    def create_term_analyzer(self):
+        closure_relations = None
+        if self.config:
+            closure_relations = self.config.closure_relations
+        term_analyzer = GOTermAnalyzer(self.ontology, closure_relations=closure_relations)
+        return term_analyzer
 
     def dump_to_json(self, filename):
         with open(filename, "w") as f:
@@ -217,7 +246,6 @@ class TermAnnotationDictionary():
 class BPTermSimilarityGrouper():
     def __init__(self, tad):
         self.tad = tad
-        self.analyzer = GOTermAnalyzer(tad.ontology)
         
     def cluster_bps_with_similar_genes(self, m=10):
         set_list = []
@@ -330,7 +358,7 @@ class BPTermSimilarityGrouper():
 
     def format_cluster_line(self, term, gene_count):
         line_print_fmt = "{term} - {term_label} - {gene_count}"
-        return line_print_fmt.format(term=term, term_label=self.analyzer.label(term), gene_count=gene_count)
+        return line_print_fmt.format(term=term, term_label=self.tad.analyzer.label(term), gene_count=gene_count)
 
     def print_clusters(self, clusters, bp_list, c_out=None):
         cluster_counter = 1
@@ -400,12 +428,12 @@ def create_association_set(filename, ontology):
     a_set = gas.association_set
     return a_set
 
-def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, reuse_tad_json=None):
+def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, reuse_tad_json=None, config: TermAnnotationDictionaryConfig = None):
     # onto, aset = setup_pombase()
     ontology = OntologyFactory().create("go")
     association_set = create_association_set(gaf_file, ontology)
     print("aset size:", len(association_set.association_map))
-    tad = TermAnnotationDictionary(ontology, association_set, json_file=reuse_tad_json)
+    tad = TermAnnotationDictionary(ontology, association_set, json_file=reuse_tad_json, config=config)
     # tad.print_results(outfile)
     print("Initial BP count: " + str(len(tad.bps)))
     new_bps = tad.select_candidate_bps(n, m, x)
@@ -429,10 +457,10 @@ def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, 
     grouper.print_clusters(c_list, new_bps, c_out)
     grouper.append_singletons_to_outfile(unpaired_bps_gene_lists, c_out)
 
-def process_tad_and_dump_out(filename, json_outfile):
+def process_tad_and_dump_out(filename, json_outfile, config: TermAnnotationDictionaryConfig = None):
     ontology = OntologyFactory().create("go")
     a_set = create_association_set(filename, ontology)
-    tad = TermAnnotationDictionary(ontology, a_set)
+    tad = TermAnnotationDictionary(ontology, a_set, config=config)
     tad.dump_to_json(json_outfile)
 
 
@@ -442,11 +470,23 @@ if __name__ == "__main__":
         args.n_value = int(args.n_value)
     if args.m_value is not None:
         args.m_value = int(args.m_value)
+    config = TermAnnotationDictionaryConfig()
+    if args.part_of_closure:
+        config.closure_relations.append(PART_OF)
+    if args.regulates_closure:
+        config.closure_relations = config.closure_relations + REGULATES_RELATIONS
 
     if args.dump_tad_json is not None:
         print("Saving TermAnnotationDictionary values to " + args.dump_tad_json + "...")
-        process_tad_and_dump_out(args.gaf_source, args.dump_tad_json)
+        process_tad_and_dump_out(args.gaf_source, args.dump_tad_json, config=config)
         print("JSON created")
     else:
         print("Getting your lists for you...")
-        do_everything(n=args.n_value, m=args.m_value, x=args.x_value, outfile=args.term_gene_count_outfile, c_out=args.clusters_outfile, s_out=args.unclustered_outfile, gaf_file=args.gaf_source, reuse_tad_json=args.reuse_tad_json)
+        do_everything(n=args.n_value, m=args.m_value, x=args.x_value,
+                      outfile=args.term_gene_count_outfile,
+                      c_out=args.clusters_outfile,
+                      s_out=args.unclustered_outfile,
+                      gaf_file=args.gaf_source,
+                      reuse_tad_json=args.reuse_tad_json,
+                      config=config
+        )
