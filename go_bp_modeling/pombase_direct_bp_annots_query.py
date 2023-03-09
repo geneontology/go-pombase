@@ -22,9 +22,11 @@ parser.add_argument('-n', "--n_value", type=str, required=False,
                     help="1. Get all the BP terms X, where the number of genes annotated to X are less than or equal to n, and the number of genes annotated to a (is_a or part_of) parent of X are greater than n")
 parser.add_argument('-m', "--m_value", type=str, required=False,
                     help="2. Of the BPs from step 1, cluster BPs X and Y together if the number of genes in common between them is greater than or equal to min(m, number of genes in X, number of genes in Y)")
-parser.add_argument('-x', "--x_value", type=int)
+parser.add_argument('-x', "--x_value", type=int,
+                    help="Filter out BP if geneset's too big (>x)")
 parser.add_argument('-g', "--gaf_source", type=str, required=True,
                     help="filename of GAF file to use as annotation source")
+parser.add_argument('-o', '--ontology_json', type=str, required=False)
 parser.add_argument('-j', "--dump_tad_json", type=str, required=False,
                     help="Save TermAnnotationDictionary values to json file for reuse")
 parser.add_argument('-r', "--reuse_tad_json", type=str, required=False,
@@ -33,6 +35,8 @@ parser.add_argument('-p', "--part_of_closure", action='store_const', const=True,
                     help="Ontology traversal includes part_of paths")
 parser.add_argument('-e', "--regulates_closure", action='store_const', const=True,
                     help="Ontology traversal includes regulates paths")
+parser.add_argument('-a', '--print_gene_sets', action='store_const', const=True,
+                    help="Print gene info for each BP in clusters_outfile")
 
 # logging.basicConfig(level="DEBUG")
 
@@ -44,6 +48,7 @@ REGULATES_RELATIONS = [
     "RO:0002212",  # negatively regulates
     "RO:0002213",  # positively regulates
 ]
+
 
 def setup_pombase():
     ontology = OntologyFactory().create("go")
@@ -66,6 +71,14 @@ class GOTermAnalyzer:
         if relations is None:
             relations = self.closure_relations
         return subont.ancestors(go_term, relations=relations)
+
+    def get_descendants(self, go_term, relations=None):
+        all_descendants = self.onto.descendants(go_term)
+        all_descendants.append(go_term)
+        subont = self.onto.subontology(all_descendants)
+        if relations is None:
+            relations = self.closure_relations
+        return subont.descendants(go_term, relations=relations)
 
     def get_parents(self, go_term, relations=None):
         all_parents = self.onto.parents(go_term)
@@ -145,9 +158,9 @@ class TermAnnotationDictionary:
         self.analyzer = self.create_term_analyzer()
         self.grouper = BPTermSimilarityGrouper(self)
         if json_file is not None:
-            with open(json_file, "r") as f:
-                self.bps = json.loads(f.read())
-                print("File '" + json_file + "' used to load gene-to-BP term dictionary - " + str(len(self.bps)) + " keys loaded")
+            self.bps = self.parse_json_to_bp_gene_sets(json_file)
+            print("File '" + json_file + "' used to load gene-to-BP term dictionary - " + str(
+                len(self.bps)) + " keys loaded")
         else:
             progress = ProgressTracker(len(annotation_set.association_map), "initializing gene-to-BP term dictionary")
             # progress = ProgressTracker(len(annotation_set), "initializing gene-to-BP term dictionary")
@@ -168,6 +181,12 @@ class TermAnnotationDictionary:
                                 self.bps[bp] = [subject_id]
                 progress.print_progress()
 
+    @staticmethod
+    def parse_json_to_bp_gene_sets(json_file):
+        with open(json_file, "r") as f:
+            bps = json.loads(f.read())
+        return bps
+
     def create_term_analyzer(self):
         closure_relations = None
         if self.config:
@@ -177,7 +196,7 @@ class TermAnnotationDictionary:
 
     def dump_to_json(self, filename):
         with open(filename, "w") as f:
-            f.write(json.dumps(self.bps))
+            f.write(json.dumps(self.bps, indent=4))
 
     def print_results(self, filepath=None, alt_bps=None):
         bps = self.bps
@@ -221,13 +240,18 @@ class TermAnnotationDictionary:
                 # Filter out BP if geneset's too big (>x)
                 continue
             bp_children = self.analyzer.get_children(bp)
-            if (gene_set_size >= m and gene_set_size <= n and self.has_parent_with_gene_set_greater_than(bp, n))\
-                    or (gene_set_size > n and len(bp_children) == 0):
+            # Filter for only bp_children that have >m genes assigned
+            bp_children_more_genes_than_m = []
+            for bpc in bp_children:
+                if bpc in self.bps and len(self.bps[bpc]) > m:
+                    bp_children_more_genes_than_m.append(bpc)
+            if (m <= gene_set_size <= n and self.has_parent_with_gene_set_greater_than(bp, n)) \
+                    or (gene_set_size > n and len(bp_children_more_genes_than_m) == 0):
                 candidate_bps[bp] = self.bps[bp]
         candidate_bp_keys = list(candidate_bps.keys())
         for bp in candidate_bp_keys:
             # Only get most generic terms of candidates - remove term from candidates if an ancestor also candidate
-            if len(set(self.analyzer.get_ancestors(bp)) & set(candidate_bp_keys)) > 0:
+            if len(set(self.analyzer.get_descendants(bp)) & set(candidate_bp_keys)) > 0:
                 del candidate_bps[bp]
         return candidate_bps
 
@@ -243,10 +267,11 @@ class TermAnnotationDictionary:
         self.cluster_list = self.grouper.cluster_pair_list(self.pair_list)
         self.unpaired_bps = self.grouper.find_unpaired_bps(self.pair_list)
 
+
 class BPTermSimilarityGrouper():
     def __init__(self, tad):
         self.tad = tad
-        
+
     def cluster_bps_with_similar_genes(self, m=10):
         set_list = []
         bp_dict = self.tad.bps
@@ -333,7 +358,7 @@ class BPTermSimilarityGrouper():
         return clusters
 
     def uniqueify_tuple_terms(self, tuples):
-        unique_items = [] 
+        unique_items = []
         for a, b, weight in tuples:
             if a not in unique_items:
                 unique_items.append(a)
@@ -354,13 +379,14 @@ class BPTermSimilarityGrouper():
     @staticmethod
     def format_cluster_header(cluster_counter, cluster, gene_count):
         header_print_fmt = "---- Cluster {cluster_counter}, Total terms: {cluster_length}, Total genes: {gene_count} ----"
-        return header_print_fmt.format(cluster_counter=str(cluster_counter), cluster_length=str(len(cluster)), gene_count=gene_count)
+        return header_print_fmt.format(cluster_counter=str(cluster_counter), cluster_length=str(len(cluster)),
+                                       gene_count=gene_count)
 
     def format_cluster_line(self, term, gene_count):
-        line_print_fmt = "{term} - {term_label} - {gene_count}"
+        line_print_fmt = "{term}\t{term_label}\t{gene_count}"
         return line_print_fmt.format(term=term, term_label=self.tad.analyzer.label(term), gene_count=gene_count)
 
-    def print_clusters(self, clusters, bp_list, c_out=None):
+    def print_clusters(self, clusters, bp_list, c_out=None, print_gene_sets=False):
         cluster_counter = 1
         if c_out is None:
             for c in clusters:
@@ -370,6 +396,8 @@ class BPTermSimilarityGrouper():
                     term_genes = set(bp_list[t])
                     genes = genes | term_genes
                     lines.append(self.format_cluster_line(t, len(term_genes)))
+                    if print_gene_sets:
+                        [lines.append(g) for g in term_genes]
                 header = self.format_cluster_header(cluster_counter, c, len(genes))
                 print(header)
                 [print(l) for l in lines]
@@ -383,6 +411,8 @@ class BPTermSimilarityGrouper():
                         term_genes = set(bp_list[t])
                         genes = genes | term_genes
                         lines.append(self.format_cluster_line(t, len(term_genes)) + "\n")
+                        if print_gene_sets:
+                            [lines.append("{}\n".format(g)) for g in term_genes]
                     header = self.format_cluster_header(cluster_counter, c, len(genes)) + "\n"
                     f.write(header)
                     [f.write(l) for l in lines]
@@ -422,15 +452,21 @@ class ProgressTracker:
     def execution_time(self):
         return datetime.datetime.now() - self.start
 
+
 def create_association_set(filename, ontology):
     # Filter out non-exp
     gas = GafAnnotationSet(filename, ontology=ontology, filter_evidence=True)
     a_set = gas.association_set
     return a_set
 
-def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, reuse_tad_json=None, config: TermAnnotationDictionaryConfig = None):
+
+def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, reuse_tad_json=None,
+                  config: TermAnnotationDictionaryConfig = None, print_gene_sets=False, ontology_file=None):
     # onto, aset = setup_pombase()
-    ontology = OntologyFactory().create("go")
+    ontology_handle = "go"
+    if ontology_file:
+        ontology_handle = ontology_file
+    ontology = OntologyFactory().create(ontology_handle)
     association_set = create_association_set(gaf_file, ontology)
     print("aset size:", len(association_set.association_map))
     tad = TermAnnotationDictionary(ontology, association_set, json_file=reuse_tad_json, config=config)
@@ -454,8 +490,9 @@ def do_everything(n, m, x, outfile=None, c_out=None, s_out=None, gaf_file=None, 
     print("Cluster count:", len(c_list))
     if len(c_list) > 0:
         print("Avg. genes/cluster:", mean([len(c) for c in c_list]))
-    grouper.print_clusters(c_list, new_bps, c_out)
+    grouper.print_clusters(c_list, new_bps, c_out, print_gene_sets=print_gene_sets)
     grouper.append_singletons_to_outfile(unpaired_bps_gene_lists, c_out)
+
 
 def process_tad_and_dump_out(filename, json_outfile, config: TermAnnotationDictionaryConfig = None):
     ontology = OntologyFactory().create("go")
@@ -488,5 +525,7 @@ if __name__ == "__main__":
                       s_out=args.unclustered_outfile,
                       gaf_file=args.gaf_source,
                       reuse_tad_json=args.reuse_tad_json,
-                      config=config
-        )
+                      config=config,
+                      print_gene_sets=args.print_gene_sets,
+                      ontology_file=args.ontology_json
+                      )
