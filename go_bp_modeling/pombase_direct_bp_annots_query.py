@@ -174,18 +174,22 @@ class TermAnnotationDictionary:
                         ancestor_bps = self.analyzer.get_ancestor_bps(object_id)
                         ancestor_bps.append(object_id)
                         for bp in ancestor_bps:
-                            if bp in self.bps:
-                                if subject_id not in self.bps[bp]:
-                                    self.bps[bp].append(subject_id)
-                            else:
-                                self.bps[bp] = [subject_id]
+                            if bp not in self.bps:
+                                self.bps[bp] = []
+                            gene_term_tuple = (subject_id, object_id)  # Track directly annotated term (object_id)
+                            self.bps[bp].append(gene_term_tuple)
                 progress.print_progress()
 
     @staticmethod
     def parse_json_to_bp_gene_sets(json_file):
         with open(json_file, "r") as f:
             bps = json.loads(f.read())
-        return bps
+        refactored_bps = {}
+        for bp, gene_term_list in bps.items():
+            # JSON dump transforms tuples to List. Transform these gene/term entities back into tuples.
+            gene_term_tuples_list = [(gene_term[0], gene_term[1]) for gene_term in gene_term_list]
+            refactored_bps[bp] = gene_term_tuples_list
+        return refactored_bps
 
     def create_term_analyzer(self):
         closure_relations = None
@@ -258,7 +262,7 @@ class TermAnnotationDictionary:
     def term_subset(self, term_list):
         new_list = {}
         for t in term_list:
-            new_list[t] = self.bps[t]
+            new_list[t] = [gene_term[0] for gene_term in self.bps[t]]
         return new_list
 
     def get_our_nice_lists(self, n=30, m=10, x=60):
@@ -317,9 +321,11 @@ class BPTermSimilarityGrouper():
         for bpx in bp_dict:
             for bpy in bp_dict:
                 if bpx != bpy and (bpx, bpy) not in set_list:
-                    common_genes_between_x_and_y = set(bp_dict[bpx]) & set(bp_dict[bpy])
+                    bpx_genes = set([gene_term[0] for gene_term in bp_dict[bpx]])
+                    bpy_genes = set([gene_term[0] for gene_term in bp_dict[bpy]])
+                    common_genes_between_x_and_y = bpx_genes & bpy_genes
                     num_of_common_genes = len(common_genes_between_x_and_y)
-                    if num_of_common_genes >= min(m, len(bp_dict[bpx]), len(bp_dict[bpy])):
+                    if num_of_common_genes >= min(m, len(bpx_genes), len(bpy_genes)):
                         # Add weight (num_of_common_genes) to these pairs
                         set_list.append((bpx, bpy, num_of_common_genes))
             progress.print_progress()
@@ -393,7 +399,7 @@ class BPTermSimilarityGrouper():
                 lines = []
                 genes = set()
                 for t in c:
-                    term_genes = set(bp_list[t])
+                    term_genes = set([gene_term[0] for gene_term in bp_list[t]])
                     genes = genes | term_genes
                     lines.append(self.format_cluster_line(t, len(term_genes)))
                     if print_gene_sets:
@@ -408,7 +414,7 @@ class BPTermSimilarityGrouper():
                     lines = []
                     genes = set()
                     for t in c:
-                        term_genes = set(bp_list[t])
+                        term_genes = set([gene_term[0] for gene_term in bp_list[t]])
                         genes = genes | term_genes
                         lines.append(self.format_cluster_line(t, len(term_genes)) + "\n")
                         if print_gene_sets:
