@@ -12,6 +12,13 @@ parser.add_argument('-o', '--ontology_file')
 parser.add_argument('-d', '--destination_folder')
 
 
+IS_A = "subClassOf"
+PART_OF = "BFO:0000050"
+REGULATES = "RO:0002211"
+POSITIVELY_REGULATES = "RO:0002213"
+NEGATIVELY_REGULATES = "RO:0002212"
+
+
 def parse_term_list_file(term_file):
     terms = set()
     with open(term_file) as tf:
@@ -23,9 +30,8 @@ def parse_term_list_file(term_file):
 def write_term_set_to_file(dest_file_path: str, term_set: Set):
     with open(dest_file_path, "w+") as df:
         for t in term_set:
-            if not ontology.parents(t, relations=["BFO:0000050"]):
-                term_label = ontology.label(t)
-                df.write("{}\n".format("\t".join([t, term_label])))
+            term_label = ontology.label(t)
+            df.write("{}\n".format("\t".join([t, term_label])))
 
 
 if __name__ == "__main__":
@@ -39,16 +45,32 @@ if __name__ == "__main__":
     print("term_file count:", len(go_terms))
     print("query_term_file count:", len(query_go_terms))
 
-    all_terms = set()
+    slim_term_modules = {}
     go_term_files_written = 0
     for t in go_terms:
-        t_descendants = set(ontology.descendants(t, relations=["subClassOf", "BFO:0000050"]))
+        # t_descendants = set(ontology.descendants(t, relations=[IS_A, PART_OF]))
+        t_descendants = set(ontology.descendants(t, relations=[IS_A, PART_OF, REGULATES, POSITIVELY_REGULATES, NEGATIVELY_REGULATES]))
         t_descendants_query_terms_intersection = query_go_terms & t_descendants
         if t_descendants_query_terms_intersection:
+            slim_term_modules[t] = t_descendants_query_terms_intersection
             all_t_descendants_query_terms_intersection = all_t_descendants_query_terms_intersection | t_descendants_query_terms_intersection
-            out_filename = os.path.join(args.destination_folder, "{}.tsv".format(t.replace(":", "_")))
-            write_term_set_to_file(out_filename, t_descendants_query_terms_intersection)
-            go_term_files_written += 1
+
+    cleaned_slim_term_modules = {}
+    for t, module_terms in slim_term_modules.items():
+        cleaned_slim_term_modules[t] = set()
+        go_term_descendants_in_slim = set(ontology.descendants(t)) & (go_terms - set(t))
+        if go_term_descendants_in_slim:
+            module_terms_in_slim_descendants = set()
+            for dt in go_term_descendants_in_slim:
+                module_terms_in_slim_descendants = module_terms_in_slim_descendants | slim_term_modules.get(dt, set())
+            cleaned_slim_term_modules[t] = slim_term_modules[t] - module_terms_in_slim_descendants
+        else:
+            cleaned_slim_term_modules[t] = slim_term_modules[t]
+
+    for ct, module_terms in cleaned_slim_term_modules.items():
+        out_filename = os.path.join(args.destination_folder, "{}.tsv".format(ct.replace(":", "_")))
+        write_term_set_to_file(out_filename, module_terms)
+        go_term_files_written += 1
     print("go_term_files_written:", go_term_files_written)
 
     # Terms in go_terms not having any query_go_terms in its descendants
